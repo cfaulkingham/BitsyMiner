@@ -27,18 +27,19 @@
     // --- Entered the correct board section ---
     #if defined(ST7789_LCD)
         #pragma message "SUCCESS: Compiling for ESP32_2432S028 with ST7789_LCD"
-        #include <Setup_ESP32_2432S028_ST7789.h>
+        #include "Setup_ESP32_2432S028_ST7789.h"
     #else
         #pragma message "SUCCESS: Compiling for ESP32_2432S028 with default ILI9341"
-        #include <Setup_ESP32_2432S028_ILI9341.h>
+        #include "Setup_ESP32_2432S028_ILI9341.h"
     #endif
 #elif defined(ESP32_2432S024)
     #pragma message "SUCCESS: Compiling for the wrong board (ESP32_2432S024)"
-    #include <Setup_ESP32_2432S024_ILI9341.h>
+    #include "Setup_ESP32_2432S024_ILI9341.h"
 #else
-    #pragma message "CRITICAL FAILURE: Falling through to generic User_Setup.h"
-    #include <User_Setup.h>
+    #error "CRITICAL: No valid TFT_eSPI board macro defined"
 #endif
+
+
 
 
 //#include <User_Setups/Setup1_ILI9341.h>  // Setup file for ESP8266 configured for my ILI9341
