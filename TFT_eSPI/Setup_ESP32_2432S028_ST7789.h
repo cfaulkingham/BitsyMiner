@@ -1,5 +1,7 @@
 #define USER_SETUP_INFO "User_Setup"
 
+#pragma message "Setup File: Compiling for the wrong board (ESP32_2432S028) ST7789"
+
 #define ST7789_2_DRIVER 
 #define TFT_WIDTH  240 // ST7789 240 x 240 and 240 x 320
 #define TFT_HEIGHT 320 // ST7789 240 x 320

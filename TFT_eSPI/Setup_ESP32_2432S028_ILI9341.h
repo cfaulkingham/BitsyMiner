@@ -1,5 +1,7 @@
 #define USER_SETUP_INFO "User_Setup"
 
+#pragma message "Setup File: Compiling for the wrong board (ESP32_2432S028) ILI9341"
+
 #define ILI9341_2_DRIVER     // Alternative ILI9341 driver, see https://github.com/Bodmer/TFT_eSPI/issues/1172
 #define TFT_WIDTH  240 // ST7789 240 x 240 and 240 x 320
 #define TFT_HEIGHT 320 // ST7789 240 x 320
