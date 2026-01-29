@@ -10,7 +10,7 @@
 */
 
 // Uncomment one of the following
-#define ESP32_2432S028
+//#define ESP32_2432S028
 //#define ESP32_2432S024
 
 // Uncomment for ST7789 display
@@ -449,5 +449,6 @@
 
 // Transactions are automatically enabled by the library for an ESP32 (to use HAL mutex)
 // so changing it here has no effect
+
 
 // #define SUPPORT_TRANSACTIONS
