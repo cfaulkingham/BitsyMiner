@@ -24,7 +24,6 @@ typedef union {
 
 void sha256(miner_sha256_hash *ctx, unsigned char* msg, size_t len);
 void sha256midstate(miner_sha256_hash *ctx, hash_block *hb);
-bool sha256header(miner_sha256_hash *midpoint, miner_sha256_hash *ctx, hash_block *hb);
-
+bool  sha256header(miner_sha256_hash *midpoint, miner_sha256_hash *ctx, hash_block *hb);
 
 #endif

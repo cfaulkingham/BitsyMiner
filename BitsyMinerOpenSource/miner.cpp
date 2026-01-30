@@ -26,8 +26,6 @@
   #include "soc/dport_reg.h"
 #endif
 #include "esp32/rom/ets_sys.h"
-#include "soc/i2s_reg.h"
-#include "soc/i2s_struct.h"
 
 #define MAX_DIFFICULTY 0x1d00ffff
 #define MAX_COINBASE_LENGTH 512
@@ -57,6 +55,7 @@ volatile bool core1Mining = false;
 
 extern MonitorData monitorData;
 
+uint64_t* pInternalHashes = &monitorData.internalHashes; // Assembly helper
 
 // Encode an extra nonce value as a hexadecimal string
 void encodeExtraNonce(char *dest, size_t len, unsigned long en) {
@@ -418,6 +417,12 @@ void hashCheck(char* jobId, miner_sha256_hash *ctx, uint32_t timestamp, uint32_t
 
 }
 
+typedef struct {
+  uint32_t  hashReady;
+  miner_sha256_hash ctx;
+} SharedHash;
+
+volatile SharedHash __attribute__((aligned(64))) sharedHash;
 
 //__attribute__((section(".fastcode")))
 void minerTask(void *task_id) {
@@ -461,10 +466,10 @@ void minerTask(void *task_id) {
       while(isMining) {
 
         yieldCounter++;
-        if( yieldCounter & 0xff == 0 ){
+        if( yieldCounter & 0x1FF == 0x100 ){
           taskYIELD();
         }      
-               
+
         if( sha256header(&midstate, &ctx, &hb) ) {
           hashCheck(jobId, &ctx, hb.timestamp, hb.nonce);     
         }
@@ -485,39 +490,128 @@ void minerTask(void *task_id) {
 
 }
 
+#define REG_WRITE_SHA(addr, val) (*(volatile uint32_t *)(addr) = (val))
+#define REG_READ_SHA(addr) (*(volatile uint32_t *)(addr))
+
+#define SHA_TEXT_BASE   0x3FF03000
+#define SHA_START_REG   0x3FF03090
+#define SHA_CONTINUE_REG 0x3FF03094
+#define SHA_LOAD_REG    0x3FF03098
+#define SHA_BUSY_REG    0x3FF0309C
+
+inline void wait_sha_idle() {
+    while (REG_READ_SHA(SHA_BUSY_REG) != 0) { }
+}
+
+void miner_sha256_loop1(
+    uint32_t* noncePtr, 
+    volatile uint32_t* shaBase, 
+    uint32_t* midhash, 
+    uint32_t* hashblock, 
+    const uint32_t* constants
+) {
+  
+  // Zero out sha buffer
+  for(int i=8; i<16; i++) {
+    shaBase[i] = 0;
+  }  
+
+  uint32_t nonce = *noncePtr;
+
+  while( isMining ) {
+    
+    // // Zero out sha buffer
+    for(int i=0; i<16; i++) {
+      shaBase[i] = 0;
+    }  
+
+    // // Do a start
+    REG_WRITE_SHA(SHA_START_REG, 1);
+    wait_sha_idle();
+
+    // // Manually Load Midstate into Buffer
+    shaBase[0] = midhash[0];
+    shaBase[1] = midhash[1];
+    shaBase[2] = midhash[2];    
+    shaBase[3] = midhash[3];    
+    shaBase[4] = midhash[4];    
+    shaBase[5] = midhash[5];    
+    shaBase[6] = midhash[6];    
+    shaBase[7] = midhash[7];    
+
+    // for(int i = 0; i < 16; i++) {
+    //   shaBase[i] = hashblock[i];
+    // }
+
+    // // Do a start
+    // REG_WRITE_SHA(SHA_START_REG, 1);
+    // wait_sha_idle();
+
+    // Trigger LOAD (Tell hardware to "suck in" the state)
+    REG_WRITE_SHA(SHA_LOAD_REG, 1);
+    wait_sha_idle();
+
+    shaBase[0] = hashblock[16];
+    shaBase[1] = hashblock[17];
+    shaBase[2] = hashblock[18];
+    shaBase[3] = nonce;
+    shaBase[4] = 0x80000000;
+    shaBase[5] = 0;
+    shaBase[6] = 0;
+    shaBase[7] = 0;
+    shaBase[8] = 0;
+    shaBase[9] = 0;
+    shaBase[10] = 0;
+    shaBase[11] = 0;
+    shaBase[12] = 0;
+    shaBase[13] = 0;
+    shaBase[14] = 0;   
+    shaBase[15] = 0x00000280;    
+
+    // 4. Trigger CONTINUE (0x94) - Use the loaded state + new block
+    REG_WRITE_SHA(SHA_CONTINUE_REG, 1);
+    wait_sha_idle();
+
+    // 5. Trigger LOAD again to pull final result out to buffer
+    REG_WRITE_SHA(SHA_LOAD_REG, 1);
+    wait_sha_idle();
+
+    shaBase[8] = 0x80000000;
+    shaBase[15] = 0x00000100;
+
+    REG_WRITE_SHA(SHA_START_REG, 1);
+    wait_sha_idle();
+
+    // Trigger LOAD (Tell hardware to "suck in" the state)
+    REG_WRITE_SHA(SHA_LOAD_REG, 1);
+    wait_sha_idle();
+
+    nonce++;
+    monitorData.internalHashes++;    
+
+    if( (shaBase[7] & 0xffff) == 0 ) break;
+  }
+
+  *noncePtr = nonce;
+
+}
 
 
-typedef struct {
-    uint32_t dw0; // Flags and length
-    uint32_t dw1; // Unused (usually)
-    uint32_t buffer_address; // Pointer to sha_dma_buffer
-    uint32_t next_desc_address; // Pointer to next descriptor (or NULL)
-} dma_desc_t;
-
+const uint32_t constants[] = {0x80000000u, 0x00000280u, 0x00000100u};
 
 //__attribute__((section(".fastcode")))
 void IRAM_ATTR miner1Task(void *task_id) {
 
-  uint32_t id = (uint32_t) task_id;
+  uint32_t coreId = (uint32_t) task_id;
   miner_sha256_hash ctx, midstate;
   char jobId[MAX_JOB_ID_LENGTH];
 
-  //hash_block hb __attribute__((aligned(4)));
   hash_block hb __attribute__((aligned(4)));
   hash_block hbCheck __attribute__((aligned(4)));
 
-
-  /* Set up DMA business */
-  // Allocate the descriptor in DMA-capable memory
-  dma_desc_t dma_descriptor __attribute__((aligned(4)));  
+  uint32_t hb2[16];
+  memset(hb2, 0, sizeof(hb2));
   
-  // 3. Configure the single DMA descriptor
-  dma_descriptor.dw0 = (64 << 12) | 0x80000000; // Total length (64) | EOF flag
-  dma_descriptor.dw1 = 0; // Reserved
-  dma_descriptor.buffer_address = (uint32_t) &hb; // Source buffer
-  dma_descriptor.next_desc_address = 0; // End of list
-  
-
   while(1) {
 
     if(! isMining ) {
@@ -533,11 +627,10 @@ void IRAM_ATTR miner1Task(void *task_id) {
 
     sha256midstate(&midstate, &hbCheck);
 
-    hb.nonce = startNonce[id];
+    hb.nonce = startNonce[coreId];
 
     safeStrnCpy(jobId, currentJobId, MAX_JOB_ID_LENGTH);
     dbg("Miner Task 2: %s\n", jobId);
-
 
     core1Mining = true;
 
@@ -546,21 +639,24 @@ void IRAM_ATTR miner1Task(void *task_id) {
     for(int i = 0; i < 20; i++) {
       data[i] = BYTESWAP32(data[i]);
     }
+    hb2[0] = data[16];
+    hb2[1] = data[17];
+    hb2[2] = data[18];
+    hb2[4] = 0x80000000;
+    hb2[15] = 0x00000280;
 
     volatile uint32_t *sha_base = (volatile uint32_t*) HASH_AREA_SHA256;
 
     const uint32_t shaPad    = 0x80000000u; // word 8 for second SHA
-    const uint32_t firstShaBitLen = 0x00000280u;
     const uint32_t secondShaBitLen = 0x00000100u; // 256 bits
     
-
     INIT_HARDWARE_SHA256
 
     while(isMining) {
 
-      // Assumes sha_base, data, internalHashes, hashBlock1, hb.nonce are 4-byte aligned.
 
-        __asm__ __volatile__(
+      // // Assumes sha_base, data, internalHashes, hashBlock1, hb.nonce are 4-byte aligned.
+      __asm__ __volatile__(
 
         "l32i.n   a2,  %[nonce], 0 \n" /* Store nonce in a register */
         "addi     a5,  %[sb], 0x90 \n" /* a5 = sb_ctl = sb + 0x90 */
@@ -608,33 +704,53 @@ void IRAM_ATTR miner1Task(void *task_id) {
         "l32i.n    a3,  %[IN],  60 \n"
         "s32i.n    a3,  %[sb],  60 \n"
 
+    
         /* 1) start SHA */
         "movi.n  a3, 1\n"
         "s32i.n  a3, a5, 0\n" /* 0x90 */
 
         "memw   \n" // Publish change
+          
 
         /* Start preparing next block */
-        "l32i    a3,  %[IN],   64 \n"
+        "l32i    a3,  %[hb2],   0 \n"
         "s32i.n  a3,  %[sb],    0 \n"
-        "l32i    a3,  %[IN],   68 \n"
+        "l32i    a3,  %[hb2],   4 \n"
         "s32i.n  a3,  %[sb],    4 \n"
-        "l32i    a3,  %[IN],   72 \n"
+        "l32i    a3,  %[hb2],   8 \n"
         "s32i.n  a3,  %[sb],    8 \n"
 
         "s32i.n    a2, %[sb], 12 \n" /* Nonce */
-        "s32i.n    %[pad2], %[sb], 16 \n" /* Termininating bit */
-        "s32i.n    %[len1], %[sb], 60 \n" /* Bit length */
 
-        // Zero sb[20..56]
-        "movi.n  a4,  0            \n" 
+        "l32i.n    a3,  %[hb2],  16 \n"
+        "s32i.n    a3,  %[sb],  16 \n"        
+        "l32i.n    a3,  %[hb2],  20 \n"
+        "s32i.n    a3,  %[sb],  20 \n"
 
-        "addi    a8, %[sb], 20  \n"  /* ptr = &sb[5] */
-        "movi.n  a3, 10         \n"  /* 10 words */
+        "l32i.n    a3,  %[hb2],  24 \n"
+        "s32i.n    a3,  %[sb],  24 \n"        
+        "l32i.n    a3,  %[hb2],  28 \n"
+        "s32i.n    a3,  %[sb],  28 \n"
 
-        "loop    a3, 1f         \n"
-        "s32i.n  a4, a8, 0      \n"
-        "addi.n  a8, a8, 4      \n"
+        "l32i.n    a3,  %[hb2],  32 \n"
+        "s32i.n    a3,  %[sb],  32 \n"
+        "l32i.n    a3,  %[hb2],  36 \n"
+        "s32i.n    a3,  %[sb],  36 \n"
+
+        "l32i.n    a3,  %[hb2],  40 \n"
+        "s32i.n    a3,  %[sb],  40 \n"        
+        "l32i.n    a3,  %[hb2],  44 \n"
+        "s32i.n    a3,  %[sb],  44 \n"
+
+        "l32i.n    a3,  %[hb2],  48 \n"
+        "s32i.n    a3,  %[sb],  48 \n"        
+        "l32i.n    a3,  %[hb2],  52 \n"
+        "s32i.n    a3,  %[sb],  52 \n"
+
+        "l32i.n    a3,  %[hb2],  56 \n"
+        "s32i.n    a3,  %[sb],  56 \n"        
+        "l32i.n    a3,  %[hb2],  60 \n"
+        "s32i.n    a3,  %[sb],  60 \n"
 
       "1:\n"
         /* 3) busy-wait */
@@ -645,7 +761,8 @@ void IRAM_ATTR miner1Task(void *task_id) {
         "movi.n  a3, 1\n"
         "s32i.n  a3, a5, 4\n" /* 0x94 */
         "memw \n"
-
+        
+        "nop  \n"
       "2:\n"
         /* 3) busy-wait */
         "l32i.n  a4, a5, 12 \n" /* 0x9C */
@@ -696,14 +813,14 @@ void IRAM_ATTR miner1Task(void *task_id) {
 
         "memw \n"
 
+        /* bail on isMining if false */
+        "l8ui   a3, %[flag], 0     \n"
+        "beqz.n a3, proc_end     \n"
+
       "5:\n"
         /* 3) busy-wait */
         "l32i.n  a4, a5, 12\n"
         "bnez.n  a4, 5b\n" 
-
-        /* bail on isMining if false */
-        "l8ui   a3, %[flag], 0     \n"
-        "beqz.n a3, proc_end     \n"
 
         /* early-continue if (sb_buf[7]&0xFFFF)!=0 */
         "l16ui  a3, %[sb], 28         \n"
@@ -721,10 +838,11 @@ void IRAM_ATTR miner1Task(void *task_id) {
           [flag] "r"(&isMining),
           [pad2]  "r" (shaPad),
           [len2]  "r" (secondShaBitLen),
-          [len1] "r" (firstShaBitLen)
+          [hb2] "r" (hb2)
         : "a2", "a3", "a4", "a5", "a8", "memory"
       );
       
+
       // See if we have a hash worth checking
       if( (sha_base[7] & 0xffff) != 0 ) continue; 
 
@@ -747,13 +865,12 @@ void IRAM_ATTR miner1Task(void *task_id) {
       } else {
         dbg("Invalid hash\n");
         INIT_HARDWARE_SHA256
-      }
-      
+      }      
     }
+
     core1Mining = false;
-    
-    // Leave this delay in case we're not mining
-    vTaskDelay(20 / portTICK_PERIOD_MS);
+
+    sharedHash.hashReady = 0;
     
   }
   

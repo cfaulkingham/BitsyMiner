@@ -16,7 +16,7 @@
 #define DEFINES_N_TYPES_H
 
 #define MINING_HARDWARE_NAME "BitsyMinerOpen"
-#define MINING_HARDWARE_VERSION_HEX 0x010100  // One byte each - X.X.X
+#define MINING_HARDWARE_VERSION_HEX 0x010200  // One byte each - X.X.X
 
 #define BYTESWAP32(z) ((uint32_t)((z&0xFF)<<24|((z>>8)&0xFF)<<16|((z>>16)&0xFF)<<8|((z>>24)&0xFF)))
 

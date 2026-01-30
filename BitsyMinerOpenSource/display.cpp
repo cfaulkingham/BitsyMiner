@@ -510,6 +510,12 @@ void showMiningPage() {
 
   }
  
+  char vStr[10];
+  versionToString(vStr, MINING_HARDWARE_VERSION_HEX);
+  tft.setTextColor(fg16, bg16);
+  tft.setTextFont(2);
+  tft.drawString(vStr, scrWidth - strlen(vStr) * 8, 50);
+
   rc = png.openFLASH((unsigned char *)transparent_small_logo, sizeof(transparent_small_logo), pngDraw);
   if (rc == PNG_SUCCESS) {
     tft.startWrite();
@@ -873,6 +879,12 @@ void showClockPage() {
     tft.drawFastHLine(0, 252, scrWidth, fg16);
   }
  
+  char vStr[10];
+  versionToString(vStr, MINING_HARDWARE_VERSION_HEX);
+  tft.setTextColor(fg16, bg16);
+  tft.setTextFont(2);
+  tft.drawString(vStr, scrWidth - strlen(vStr) * 8, 50);
+
   rc = png.openFLASH((unsigned char *)transparent_small_logo, sizeof(transparent_small_logo), pngDraw);
   if (rc == PNG_SUCCESS) {
     tft.startWrite();

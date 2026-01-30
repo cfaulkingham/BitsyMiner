@@ -215,7 +215,7 @@ void handleSerialCommand(char *cmd) {
         if( settings.ssid[0] ) {
           doSerialOutput(settings.ssid);
         } else {
-          doSerialOutput("No SSI set.");
+          doSerialOutput("No SSID set.");
         }
       } else if(strcmp("wallet", &cmd[5]) == 0 ) {
         doSerialOutput(settings.wallet);

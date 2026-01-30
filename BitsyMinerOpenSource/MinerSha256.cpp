@@ -44,14 +44,14 @@
 
 #define GET_DATA(v,i) (v[i] << 24) | (v[i + 1] << 16) | (v[i + 2] << 8) | (v[i + 3])
 
-static WORD h0 = 0x6a09e667;
-static WORD h1 = 0xbb67ae85;
-static WORD h2 = 0x3c6ef372;
-static WORD h3 = 0xa54ff53a;
-static WORD h4 = 0x510e527f;
-static WORD h5 = 0x9b05688c;
-static WORD h6 = 0x1f83d9ab;
-static WORD h7 = 0x5be0cd19;
+static const WORD h0 = 0x6a09e667;
+static const WORD h1 = 0xbb67ae85;
+static const WORD h2 = 0x3c6ef372;
+static const WORD h3 = 0xa54ff53a;
+static const WORD h4 = 0x510e527f;
+static const WORD h5 = 0x9b05688c;
+static const WORD h6 = 0x1f83d9ab;
+static const WORD h7 = 0x5be0cd19;
 
 static unsigned long k[] =
    {0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -280,12 +280,9 @@ void sha256midstate(miner_sha256_hash *ctx, hash_block *hb) {
 
 bool sha256header(miner_sha256_hash *midpoint, miner_sha256_hash *ctx, hash_block *hb) {
 
-  miner_sha256_hash tmp;
-
   WORD temp1, temp2;
  
   unsigned char *data = (unsigned char*) hb;
-  int i, j;
 
   WORD WA[8] = {
       midpoint->hash[0], 
@@ -382,28 +379,17 @@ bool sha256header(miner_sha256_hash *midpoint, miner_sha256_hash *ctx, hash_bloc
   CM(2, 3, 4, 5, 6, 7, 0, 1, 62);
   CM(1, 2, 3, 4, 5, 6, 7, 0, 63);  
   
-  tmp.hash[0] = BYTESWAP32(WA[0] + midpoint->hash[0]);
-  tmp.hash[1] = BYTESWAP32(WA[1] + midpoint->hash[1]);
-  tmp.hash[2] = BYTESWAP32(WA[2] + midpoint->hash[2]);
-  tmp.hash[3] = BYTESWAP32(WA[3] + midpoint->hash[3]);
-  tmp.hash[4] = BYTESWAP32(WA[4] + midpoint->hash[4]);
-  tmp.hash[5] = BYTESWAP32(WA[5] + midpoint->hash[5]);
-  tmp.hash[6] = BYTESWAP32(WA[6] + midpoint->hash[6]);
-  tmp.hash[7] = BYTESWAP32(WA[7] + midpoint->hash[7]);
+  w[0] = WA[0] + midpoint->hash[0];
+  w[1] = WA[1] + midpoint->hash[1];
+  w[2] = WA[2] + midpoint->hash[2];
+  w[3] = WA[3] + midpoint->hash[3];
+  w[4] = WA[4] + midpoint->hash[4];
+  w[5] = WA[5] + midpoint->hash[5];
+  w[6] = WA[6] + midpoint->hash[6];
+  w[7] = WA[7] + midpoint->hash[7];
 
 
-  // Copy first hash into working area to do another hash
-  data = (unsigned char *) tmp.hash;
-  
-  w[0] = GET_DATA(data, 0);
-  w[1] = GET_DATA(data, 4);
-  w[2] = GET_DATA(data, 8);
-  w[3] = GET_DATA(data, 12);
-  w[4] = GET_DATA(data, 16);
-  w[5] = GET_DATA(data, 20);
-  w[6] = GET_DATA(data, 24);
-  w[7] = GET_DATA(data, 28);
-
+  // Do the second half of the hash
   w[8] = 0x80000000;
   w[9] = w[10] = w[11] = w[12] = w[13] = w[14] = 0;
   w[15] = 0x00000100;
@@ -516,4 +502,5 @@ bool sha256header(miner_sha256_hash *midpoint, miner_sha256_hash *ctx, hash_bloc
 
   return true;
 }
+
 
