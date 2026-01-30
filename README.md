@@ -32,7 +32,13 @@ In the tools menu, change the settings as follow:
 
 **Option 2:** Install from Binaries
 
-I have included a few binaries in the "binaries" folder. I may provide a loader at some point, but for the time being, navigate to the [binaries](binaries) folder and follow the instructions there.
+You can now find the binaries in the individual releases. You will see two types of binaries, one for doing a new install, and one for upgrading a device. The first will overwrite the entire device, and the latter can be used for just overwriting the application area so you don't lose your data.
+
+Use the [ESP Tool](https://espressif.github.io/esptool-js/) to connect to and program the device.
+
+For a new installation, set the flash address to 0x0 and write the "New Install" binary.
+
+For upgrading an existing BitsyMiner installation, set the flash address to 0x10000 and write the "Upgrade" binary.
 
 After installing, you can follow the setup video [here](https://www.youtube.com/watch?v=Ur3amBXdaBI).
 
