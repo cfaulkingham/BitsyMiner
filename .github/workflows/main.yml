@@ -134,7 +134,8 @@ jobs:
           # Don't drag along existing binaries
           rm -rf ./binaries
           mkdir -p ./binaries
-          cp build/${{ matrix.variant }}/*.merged.bin ./binaries/BitsyMinerOpenSource-${{ matrix.outname }}.bin
+          cp build/${{ matrix.variant }}/*.merged.bin ./binaries/BitsyMinerOpenSource-${{ matrix.outname }}.New_Install.bin
+          cp build/${{ matrix.variant }}/*.ino.bin ./binaries/BitsyMinerOpenSource-${{ matrix.outname }}.Upgrade.bin
 
       - name: Upload temporary artifact
         uses: actions/upload-artifact@v4
