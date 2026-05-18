@@ -988,9 +988,6 @@ void minerWorker(
         }
 
         for (int batch = 0; batch < 4096 && running.load(std::memory_order_relaxed); ++batch) {
-            auto current = minerState.currentJob();
-            if (!current || current->sequence != seenSequence) break;
-
             const Hash32 hash = sha256::doubleHeaderWithNonce(job->midstate, job->tailWords, nonce);
             ++localHashes;
 
