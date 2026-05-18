@@ -990,12 +990,14 @@ void minerWorker(
     const Options& opt,
     MinerState& minerState,
     Stats& stats,
-    std::atomic<bool>& running
+    std::atomic<bool>& running,
+    std::vector<uint64_t>* workerTotals
 ) {
     pinThreadIfRequested(workerIndex, opt);
     uint64_t seenSequence = 0;
     uint32_t nonce = static_cast<uint32_t>(workerIndex);
     uint64_t localHashes = 0;
+    uint64_t workerHashes = 0;
 
     while (running.load(std::memory_order_relaxed)) {
         auto job = minerState.currentJob();
@@ -1015,6 +1017,7 @@ void minerWorker(
             uint32_t finalState[8];
             sha256::doubleHeaderStateWithNonce(job->midstate, job->tailWords, nonce, finalState);
             ++localHashes;
+            ++workerHashes;
 
             if (sha256::stateMeetsTarget(finalState, job->poolTarget)) {
                 const Hash32 hash = sha256::hashFromState(finalState);
@@ -1042,6 +1045,9 @@ void minerWorker(
     }
 
     stats.hashes.fetch_add(localHashes, std::memory_order_relaxed);
+    if (workerTotals && workerIndex >= 0 && static_cast<size_t>(workerIndex) < workerTotals->size()) {
+        (*workerTotals)[static_cast<size_t>(workerIndex)] = workerHashes;
+    }
 }
 
 Notify parseNotify(const Json& root) {
@@ -1390,8 +1396,18 @@ int runBenchmark(const Options& opt) {
     minerState.setJob(job);
 
     std::vector<std::thread> workers;
+    std::vector<uint64_t> workerTotals(static_cast<size_t>(opt.threads), 0);
     for (int i = 0; i < opt.threads; ++i) {
-        workers.emplace_back(minerWorker, i, opt.threads, std::cref(opt), std::ref(minerState), std::ref(stats), std::ref(running));
+        workers.emplace_back(
+            minerWorker,
+            i,
+            opt.threads,
+            std::cref(opt),
+            std::ref(minerState),
+            std::ref(stats),
+            std::ref(running),
+            &workerTotals
+        );
     }
 
     std::this_thread::sleep_for(std::chrono::seconds(opt.benchmarkSeconds));
@@ -1403,6 +1419,15 @@ int runBenchmark(const Options& opt) {
     const double rate = static_cast<double>(hashes) / static_cast<double>(opt.benchmarkSeconds);
     std::cerr << "benchmark: " << hashes << " hashes in " << opt.benchmarkSeconds
               << "s, " << formatHashrate(rate) << "\n";
+    for (int i = 0; i < opt.threads; ++i) {
+        const int core = opt.coreList.empty() ? i : opt.coreList[static_cast<size_t>(i) % opt.coreList.size()];
+        const double workerRate = static_cast<double>(workerTotals[static_cast<size_t>(i)]) /
+                                  static_cast<double>(opt.benchmarkSeconds);
+        std::cerr << "worker " << i;
+        if (opt.useAffinity) std::cerr << " cpu=" << core;
+        std::cerr << " rate=" << formatHashrate(workerRate)
+                  << " hashes=" << workerTotals[static_cast<size_t>(i)] << "\n";
+    }
     return 0;
 }
 
@@ -1457,7 +1482,8 @@ int main(int argc, char** argv) {
                 std::cref(opt),
                 std::ref(minerState),
                 std::ref(stats),
-                std::ref(running)
+                std::ref(running),
+                nullptr
             );
         }
 
