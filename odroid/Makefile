@@ -9,7 +9,7 @@ ODROID_BIN := $(BUILD_DIR)/bitsyminer-odroid-mc1-solo
 
 COMMON_CXXFLAGS := -std=c++17 -Wall -Wextra -Wpedantic -pthread
 RELEASE_FLAGS := -O3 -DNDEBUG -fomit-frame-pointer -funroll-loops
-ODROID_FLAGS := -mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard -marm -flto -DBITSY_ODROID_MC1_SOLO=1
+ODROID_FLAGS := -mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard -marm -flto -DBITSY_ODROID_MC1_SOLO=1 -DBITSY_FORCE_NEON=1
 
 .PHONY: all host odroid odroid-local self-test clean
 
