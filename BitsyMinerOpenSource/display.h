@@ -27,11 +27,13 @@
 void initializeDisplay(uint8_t rotation, uint8_t brightness);
 void refreshDisplay();
 bool screenTouched();
+bool getScreenTouchPoint(int16_t *x, int16_t *y);
 void setBrightness(unsigned long brightness);
 void setCurrentScreen(uint8_t screen);
 void setRotation(uint8_t rotation);
 void redraw();
 void handleScreenTouch();
+bool handleScreenTouchAt(int16_t x, int16_t y);
 
 #endif
 

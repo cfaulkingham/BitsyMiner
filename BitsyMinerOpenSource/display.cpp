@@ -78,6 +78,12 @@
 #define SCREEN_HEIGHT 240
 #define FONT_SIZE 2
 
+#define TOUCH_RAW_MIN 200
+#define TOUCH_RAW_MAX 3900
+#define TOP_ICON_Y 5
+#define TOP_ICON_SIZE 32
+#define TOP_ICON_TOUCH_PAD 8
+
 #define SEG7_FONT_WIDTH 30
 #define SEG7_FONT_HEIGHT 48
 
@@ -110,6 +116,7 @@ static const char *dataTitles[] = { "Total Hashes", "Best Difficulty", "Pool Job
 
 uint8_t currentScreen = SCREEN_MINING;
 uint8_t currentScreenOrientation = 0;
+bool screenHasDrawn = false;
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -1054,6 +1061,34 @@ bool screenTouched() {
 
 }
 
+bool getScreenTouchPoint(int16_t *x, int16_t *y) {
+  #if defined(ESP32_2432S028) || defined(ESP32_2432S024)
+    TS_Point touch = touchscreen.getPoint();
+    if( touch.z <= 0 ) {
+      return false;
+    }
+
+    bool isLandscape = (currentScreenOrientation % 2);
+    int16_t scrWidth = isLandscape ? SCREEN_WIDTH : SCREEN_HEIGHT;
+    int16_t scrHeight = isLandscape ? SCREEN_HEIGHT : SCREEN_WIDTH;
+
+    int32_t px = map(touch.x, TOUCH_RAW_MIN, TOUCH_RAW_MAX, 0, scrWidth - 1);
+    int32_t py = map(touch.y, TOUCH_RAW_MIN, TOUCH_RAW_MAX, 0, scrHeight - 1);
+
+    *x = constrain(px, 0, scrWidth - 1);
+    *y = constrain(py, 0, scrHeight - 1);
+    return true;
+  #else
+    Point touch = touchscreen.getTouch();
+    if( touch.x == 0 && touch.y == 0 ) {
+      return false;
+    }
+    *x = touch.x;
+    *y = touch.y;
+    return true;
+  #endif
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -1112,6 +1147,8 @@ void redraw() {
       refreshClockPage(true);
       break;
   }
+
+  screenHasDrawn = true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1121,6 +1158,9 @@ void redraw() {
 ///////////////////////////////////////////////////////////////////////////////////////////
 // Set the current screen and switch
 void setCurrentScreen(uint8_t screen) {
+  if( screenHasDrawn && currentScreen == screen ) {
+    return;
+  }
   currentScreen = screen;
   redraw();
 }
@@ -1131,25 +1171,61 @@ void setCurrentScreen(uint8_t screen) {
 ///////////////////////////////////////////////////////////////////////////////////////////
 void setRotation(uint8_t rotation) {
   currentScreenOrientation = rotation;
+  screenHasDrawn = false;
   tft.setRotation(rotation);
-  //touchscreen.setRotation(rotation);  
+  #if defined(ESP32_2432S028) || defined(ESP32_2432S024)
+    touchscreen.setRotation(rotation);
+  #endif
 }
 
 // Called if main decides we need to do
 // something with a screen touch
 void handleScreenTouch() {
   switch( currentScreen ) {
+    case SCREEN_ACCESS_POINT:
+    case SCREEN_FIRMWARE:
+      setCurrentScreen(SCREEN_MINING);
+      break;
     case SCREEN_MINING:
       setCurrentScreen(SCREEN_ONE);
       break;
     case SCREEN_ONE:
-      setCurrentScreen(SCREEN_CLOCK);
+      setCurrentScreen(SCREEN_MINING);
       break;
     case SCREEN_CLOCK:
       setCurrentScreen(SCREEN_MINING);      
       break;
+    default:
+      setCurrentScreen(SCREEN_MINING);
+      break;
   }
 
+}
+
+static bool pointInRect(int16_t x, int16_t y, int16_t rx, int16_t ry, int16_t rw, int16_t rh) {
+  return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+}
+
+bool handleScreenTouchAt(int16_t x, int16_t y) {
+  bool isLandscape = (currentScreenOrientation % 2);
+  int16_t scrWidth = isLandscape ? SCREEN_WIDTH : SCREEN_HEIGHT;
+
+  int16_t iconY = TOP_ICON_Y - TOP_ICON_TOUCH_PAD;
+  int16_t iconSize = TOP_ICON_SIZE + (TOP_ICON_TOUCH_PAD * 2);
+
+  if( pointInRect(x, y, scrWidth - 40 - TOP_ICON_TOUCH_PAD, iconY, iconSize, iconSize) ) {
+    setCurrentScreen(SCREEN_ONE);
+    return true;
+  }
+
+  if( pointInRect(x, y, scrWidth - 80 - TOP_ICON_TOUCH_PAD, iconY, iconSize, iconSize) ||
+      pointInRect(x, y, scrWidth - 120 - TOP_ICON_TOUCH_PAD, iconY, iconSize, iconSize) ) {
+    setCurrentScreen(SCREEN_MINING);
+    return true;
+  }
+
+  handleScreenTouch();
+  return true;
 }
 
 

@@ -42,6 +42,10 @@ extern QueueHandle_t appMessageQueueHandle;
 uint32_t lastScreenTouch = millis();
 uint32_t lastDataSave = millis(); 
 uint32_t lastWifiReconnect = millis();  // Last time we attempted to reconnect
+bool screenTouchActive = false;
+bool screenTouchHandled = false;
+uint32_t screenTouchStart = 0;
+uint32_t lastScreenTouchAction = 0;
 
 
 WiFiUDP udp;
@@ -292,7 +296,11 @@ void eventTask(void *task_id) {
         turnOnAccessPoint();
       } else {
         #if defined(USE_DISPLAY)      
+        #if defined(DISABLE_BOOT_KEY_SCREEN_CYCLE)
+          setCurrentScreen(SCREEN_MINING);
+        #else
           handleScreenTouch();
+        #endif
         #endif
       }
       button1.clicked = false;
@@ -307,19 +315,41 @@ void eventTask(void *task_id) {
 
     #ifdef USE_DISPLAY
     if( screenTouched() ) {
+      int16_t touchX = 0;
+      int16_t touchY = 0;
+      bool haveTouchPoint = getScreenTouchPoint(&touchX, &touchY);
+
       lastScreenTouch = millis();
       setBrightness(settings.screenBrightness);
-      
-      int16_t c = 10;
-      while( screenTouched() && c-- > 0) {
-        vTaskDelay(20/portTICK_PERIOD_MS);
+
+      if( ! screenTouchActive ) {
+        screenTouchActive = true;
+        screenTouchHandled = false;
+        screenTouchStart = millis();
       }
-      if( c < 4 ) {
-        handleScreenTouch();
+
+      if( ! screenTouchHandled && millis() - screenTouchStart >= 150 && millis() - lastScreenTouchAction >= 750 ) {
+        #if !defined(DISABLE_TOUCH_SCREEN_CYCLE)
+        if( haveTouchPoint ) {
+          handleScreenTouchAt(touchX, touchY);
+        } else {
+          handleScreenTouch();
+        }
+        #endif
+        screenTouchHandled = true;
+        lastScreenTouchAction = millis();
+      } else if( screenTouchHandled && millis() - screenTouchStart >= 1200 && millis() - lastScreenTouchAction >= 1000 ) {
+        setCurrentScreen(SCREEN_MINING);
+        lastScreenTouchAction = millis();
       }
-      
+
     } else if( settings.inactivityTimer && millis() - lastScreenTouch > settings.inactivityTimer) {
+      screenTouchActive = false;
+      screenTouchHandled = false;
       setBrightness(settings.inactivityBrightness); // Turn off the display
+    } else {
+      screenTouchActive = false;
+      screenTouchHandled = false;
     }
     #endif
 

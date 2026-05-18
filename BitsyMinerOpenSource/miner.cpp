@@ -443,7 +443,7 @@ void minerTask(void *task_id) {
 
       // Check to see if we have core 0 mining turned off
       if( settings.coreZeroDisabled ) {
-        taskYIELD();
+        vTaskDelay(20 / portTICK_PERIOD_MS);
         continue;
       }
 
@@ -461,14 +461,15 @@ void minerTask(void *task_id) {
       //Set the starting nonce for this task
       hb.nonce = startNonce[miner_id];
       
-      unsigned short yieldCounter = CORE_0_YIELD_COUNT;
+      uint16_t delayCounter = 0;
       
       while(isMining) {
 
-        yieldCounter++;
-        if( yieldCounter & 0x1FF == 0x100 ){
-          taskYIELD();
-        }      
+        delayCounter++;
+        if( delayCounter >= CORE_0_YIELD_COUNT ){
+          delayCounter = 0;
+          vTaskDelay(1);
+        }
 
         if( sha256header(&midstate, &ctx, &hb) ) {
           hashCheck(jobId, &ctx, hb.timestamp, hb.nonce);     

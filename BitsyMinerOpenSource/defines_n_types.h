@@ -56,14 +56,20 @@
 
 
 #if defined(ESP32_2432S028)
-  #if defined(ST7789_LCD)
+  #if defined(LCDWIKI_ESP32_32E_28)
+    #define MINING_HARDWARE_MODEL "BTC-LCDWIKI-ESP32-32E-2.8"
+  #elif defined(ST7789_LCD)
     #define MINING_HARDWARE_MODEL "BTC-ESP32-2432S028-ST7789"
   #else
     #define MINING_HARDWARE_MODEL "BTC-ESP32-2432S028"
   #endif
   #define USE_DISPLAY
   #define USE_SD_CARD
-  #define LED1_RED_PIN 4
+  #if defined(LCDWIKI_ESP32_32E_28)
+    #define LED1_RED_PIN 22
+  #else
+    #define LED1_RED_PIN 4
+  #endif
   #define LED1_GREEN_PIN 16
   #define LED1_BLUE_PIN 17
   #define LED1_RED_CHANNEL 1

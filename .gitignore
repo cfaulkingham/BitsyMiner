@@ -1,2 +1,5 @@
 /assets/
 /binaries/
+
+.pio/
+.vscode/
