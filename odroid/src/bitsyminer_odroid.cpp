@@ -227,11 +227,8 @@ BITSY_ALWAYS_INLINE uint32_t smallSigma1(uint32_t x) {
 }
 
 BITSY_ALWAYS_INLINE void compressWords(uint32_t state[8], const uint32_t first16[16]) {
-    uint32_t w[64];
+    uint32_t w[16];
     for (size_t i = 0; i < 16; ++i) w[i] = first16[i];
-    for (size_t i = 16; i < 64; ++i) {
-        w[i] = w[i - 16] + smallSigma0(w[i - 15]) + w[i - 7] + smallSigma1(w[i - 2]);
-    }
 
     uint32_t a = state[0];
     uint32_t b = state[1];
@@ -242,18 +239,39 @@ BITSY_ALWAYS_INLINE void compressWords(uint32_t state[8], const uint32_t first16
     uint32_t g = state[6];
     uint32_t h = state[7];
 
-    for (size_t i = 0; i < 64; ++i) {
-        const uint32_t t1 = h + bigSigma1(e) + ch(e, f, g) + kRound[i] + w[i];
-        const uint32_t t2 = bigSigma0(a) + maj(a, b, c);
-        h = g;
-        g = f;
-        f = e;
-        e = d + t1;
-        d = c;
-        c = b;
-        b = a;
-        a = t1 + t2;
-    }
+#define SHA256_ROUND(i) do { \
+        const uint32_t wi = ((i) < 16) ? w[(i)] : \
+            (w[(i) & 15] += smallSigma0(w[((i) + 1) & 15]) + w[((i) + 9) & 15] + smallSigma1(w[((i) + 14) & 15])); \
+        const uint32_t t1 = h + bigSigma1(e) + ch(e, f, g) + kRound[(i)] + wi; \
+        const uint32_t t2 = bigSigma0(a) + maj(a, b, c); \
+        h = g; \
+        g = f; \
+        f = e; \
+        e = d + t1; \
+        d = c; \
+        c = b; \
+        b = a; \
+        a = t1 + t2; \
+    } while (0)
+
+    SHA256_ROUND(0); SHA256_ROUND(1); SHA256_ROUND(2); SHA256_ROUND(3);
+    SHA256_ROUND(4); SHA256_ROUND(5); SHA256_ROUND(6); SHA256_ROUND(7);
+    SHA256_ROUND(8); SHA256_ROUND(9); SHA256_ROUND(10); SHA256_ROUND(11);
+    SHA256_ROUND(12); SHA256_ROUND(13); SHA256_ROUND(14); SHA256_ROUND(15);
+    SHA256_ROUND(16); SHA256_ROUND(17); SHA256_ROUND(18); SHA256_ROUND(19);
+    SHA256_ROUND(20); SHA256_ROUND(21); SHA256_ROUND(22); SHA256_ROUND(23);
+    SHA256_ROUND(24); SHA256_ROUND(25); SHA256_ROUND(26); SHA256_ROUND(27);
+    SHA256_ROUND(28); SHA256_ROUND(29); SHA256_ROUND(30); SHA256_ROUND(31);
+    SHA256_ROUND(32); SHA256_ROUND(33); SHA256_ROUND(34); SHA256_ROUND(35);
+    SHA256_ROUND(36); SHA256_ROUND(37); SHA256_ROUND(38); SHA256_ROUND(39);
+    SHA256_ROUND(40); SHA256_ROUND(41); SHA256_ROUND(42); SHA256_ROUND(43);
+    SHA256_ROUND(44); SHA256_ROUND(45); SHA256_ROUND(46); SHA256_ROUND(47);
+    SHA256_ROUND(48); SHA256_ROUND(49); SHA256_ROUND(50); SHA256_ROUND(51);
+    SHA256_ROUND(52); SHA256_ROUND(53); SHA256_ROUND(54); SHA256_ROUND(55);
+    SHA256_ROUND(56); SHA256_ROUND(57); SHA256_ROUND(58); SHA256_ROUND(59);
+    SHA256_ROUND(60); SHA256_ROUND(61); SHA256_ROUND(62); SHA256_ROUND(63);
+
+#undef SHA256_ROUND
 
     state[0] += a;
     state[1] += b;
@@ -270,11 +288,8 @@ BITSY_ALWAYS_INLINE bool compressFinalWordsMeetsTarget(
     const std::array<uint32_t, 8>& targetWords,
     uint32_t finalState[8]
 ) {
-    uint32_t w[64];
+    uint32_t w[16];
     for (size_t i = 0; i < 16; ++i) w[i] = first16[i];
-    for (size_t i = 16; i < 64; ++i) {
-        w[i] = w[i - 16] + smallSigma0(w[i - 15]) + w[i - 7] + smallSigma1(w[i - 2]);
-    }
 
     uint32_t a = kInit[0];
     uint32_t b = kInit[1];
@@ -285,18 +300,39 @@ BITSY_ALWAYS_INLINE bool compressFinalWordsMeetsTarget(
     uint32_t g = kInit[6];
     uint32_t h = kInit[7];
 
-    for (size_t i = 0; i < 64; ++i) {
-        const uint32_t t1 = h + bigSigma1(e) + ch(e, f, g) + kRound[i] + w[i];
-        const uint32_t t2 = bigSigma0(a) + maj(a, b, c);
-        h = g;
-        g = f;
-        f = e;
-        e = d + t1;
-        d = c;
-        c = b;
-        b = a;
-        a = t1 + t2;
-    }
+#define SHA256_FINAL_ROUND(i) do { \
+        const uint32_t wi = ((i) < 16) ? w[(i)] : \
+            (w[(i) & 15] += smallSigma0(w[((i) + 1) & 15]) + w[((i) + 9) & 15] + smallSigma1(w[((i) + 14) & 15])); \
+        const uint32_t t1 = h + bigSigma1(e) + ch(e, f, g) + kRound[(i)] + wi; \
+        const uint32_t t2 = bigSigma0(a) + maj(a, b, c); \
+        h = g; \
+        g = f; \
+        f = e; \
+        e = d + t1; \
+        d = c; \
+        c = b; \
+        b = a; \
+        a = t1 + t2; \
+    } while (0)
+
+    SHA256_FINAL_ROUND(0); SHA256_FINAL_ROUND(1); SHA256_FINAL_ROUND(2); SHA256_FINAL_ROUND(3);
+    SHA256_FINAL_ROUND(4); SHA256_FINAL_ROUND(5); SHA256_FINAL_ROUND(6); SHA256_FINAL_ROUND(7);
+    SHA256_FINAL_ROUND(8); SHA256_FINAL_ROUND(9); SHA256_FINAL_ROUND(10); SHA256_FINAL_ROUND(11);
+    SHA256_FINAL_ROUND(12); SHA256_FINAL_ROUND(13); SHA256_FINAL_ROUND(14); SHA256_FINAL_ROUND(15);
+    SHA256_FINAL_ROUND(16); SHA256_FINAL_ROUND(17); SHA256_FINAL_ROUND(18); SHA256_FINAL_ROUND(19);
+    SHA256_FINAL_ROUND(20); SHA256_FINAL_ROUND(21); SHA256_FINAL_ROUND(22); SHA256_FINAL_ROUND(23);
+    SHA256_FINAL_ROUND(24); SHA256_FINAL_ROUND(25); SHA256_FINAL_ROUND(26); SHA256_FINAL_ROUND(27);
+    SHA256_FINAL_ROUND(28); SHA256_FINAL_ROUND(29); SHA256_FINAL_ROUND(30); SHA256_FINAL_ROUND(31);
+    SHA256_FINAL_ROUND(32); SHA256_FINAL_ROUND(33); SHA256_FINAL_ROUND(34); SHA256_FINAL_ROUND(35);
+    SHA256_FINAL_ROUND(36); SHA256_FINAL_ROUND(37); SHA256_FINAL_ROUND(38); SHA256_FINAL_ROUND(39);
+    SHA256_FINAL_ROUND(40); SHA256_FINAL_ROUND(41); SHA256_FINAL_ROUND(42); SHA256_FINAL_ROUND(43);
+    SHA256_FINAL_ROUND(44); SHA256_FINAL_ROUND(45); SHA256_FINAL_ROUND(46); SHA256_FINAL_ROUND(47);
+    SHA256_FINAL_ROUND(48); SHA256_FINAL_ROUND(49); SHA256_FINAL_ROUND(50); SHA256_FINAL_ROUND(51);
+    SHA256_FINAL_ROUND(52); SHA256_FINAL_ROUND(53); SHA256_FINAL_ROUND(54); SHA256_FINAL_ROUND(55);
+    SHA256_FINAL_ROUND(56); SHA256_FINAL_ROUND(57); SHA256_FINAL_ROUND(58); SHA256_FINAL_ROUND(59);
+    SHA256_FINAL_ROUND(60); SHA256_FINAL_ROUND(61); SHA256_FINAL_ROUND(62); SHA256_FINAL_ROUND(63);
+
+#undef SHA256_FINAL_ROUND
 
     h += kInit[7];
     uint32_t hashWord = bswap32(h);
