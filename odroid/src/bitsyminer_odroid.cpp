@@ -283,90 +283,6 @@ BITSY_ALWAYS_INLINE void compressWords(uint32_t state[8], const uint32_t first16
     state[7] += h;
 }
 
-BITSY_ALWAYS_INLINE bool compressFinalWordsMeetsTarget(
-    const uint32_t first16[16],
-    const std::array<uint32_t, 8>& targetWords,
-    uint32_t finalState[8]
-) {
-    uint32_t w[16];
-    for (size_t i = 0; i < 16; ++i) w[i] = first16[i];
-
-    uint32_t a = kInit[0];
-    uint32_t b = kInit[1];
-    uint32_t c = kInit[2];
-    uint32_t d = kInit[3];
-    uint32_t e = kInit[4];
-    uint32_t f = kInit[5];
-    uint32_t g = kInit[6];
-    uint32_t h = kInit[7];
-
-#define SHA256_FINAL_ROUND(i) do { \
-        const uint32_t wi = ((i) < 16) ? w[(i)] : \
-            (w[(i) & 15] += smallSigma0(w[((i) + 1) & 15]) + w[((i) + 9) & 15] + smallSigma1(w[((i) + 14) & 15])); \
-        const uint32_t t1 = h + bigSigma1(e) + ch(e, f, g) + kRound[(i)] + wi; \
-        const uint32_t t2 = bigSigma0(a) + maj(a, b, c); \
-        h = g; \
-        g = f; \
-        f = e; \
-        e = d + t1; \
-        d = c; \
-        c = b; \
-        b = a; \
-        a = t1 + t2; \
-    } while (0)
-
-    SHA256_FINAL_ROUND(0); SHA256_FINAL_ROUND(1); SHA256_FINAL_ROUND(2); SHA256_FINAL_ROUND(3);
-    SHA256_FINAL_ROUND(4); SHA256_FINAL_ROUND(5); SHA256_FINAL_ROUND(6); SHA256_FINAL_ROUND(7);
-    SHA256_FINAL_ROUND(8); SHA256_FINAL_ROUND(9); SHA256_FINAL_ROUND(10); SHA256_FINAL_ROUND(11);
-    SHA256_FINAL_ROUND(12); SHA256_FINAL_ROUND(13); SHA256_FINAL_ROUND(14); SHA256_FINAL_ROUND(15);
-    SHA256_FINAL_ROUND(16); SHA256_FINAL_ROUND(17); SHA256_FINAL_ROUND(18); SHA256_FINAL_ROUND(19);
-    SHA256_FINAL_ROUND(20); SHA256_FINAL_ROUND(21); SHA256_FINAL_ROUND(22); SHA256_FINAL_ROUND(23);
-    SHA256_FINAL_ROUND(24); SHA256_FINAL_ROUND(25); SHA256_FINAL_ROUND(26); SHA256_FINAL_ROUND(27);
-    SHA256_FINAL_ROUND(28); SHA256_FINAL_ROUND(29); SHA256_FINAL_ROUND(30); SHA256_FINAL_ROUND(31);
-    SHA256_FINAL_ROUND(32); SHA256_FINAL_ROUND(33); SHA256_FINAL_ROUND(34); SHA256_FINAL_ROUND(35);
-    SHA256_FINAL_ROUND(36); SHA256_FINAL_ROUND(37); SHA256_FINAL_ROUND(38); SHA256_FINAL_ROUND(39);
-    SHA256_FINAL_ROUND(40); SHA256_FINAL_ROUND(41); SHA256_FINAL_ROUND(42); SHA256_FINAL_ROUND(43);
-    SHA256_FINAL_ROUND(44); SHA256_FINAL_ROUND(45); SHA256_FINAL_ROUND(46); SHA256_FINAL_ROUND(47);
-    SHA256_FINAL_ROUND(48); SHA256_FINAL_ROUND(49); SHA256_FINAL_ROUND(50); SHA256_FINAL_ROUND(51);
-    SHA256_FINAL_ROUND(52); SHA256_FINAL_ROUND(53); SHA256_FINAL_ROUND(54); SHA256_FINAL_ROUND(55);
-    SHA256_FINAL_ROUND(56); SHA256_FINAL_ROUND(57); SHA256_FINAL_ROUND(58); SHA256_FINAL_ROUND(59);
-    SHA256_FINAL_ROUND(60); SHA256_FINAL_ROUND(61); SHA256_FINAL_ROUND(62); SHA256_FINAL_ROUND(63);
-
-#undef SHA256_FINAL_ROUND
-
-    h += kInit[7];
-    uint32_t hashWord = bswap32(h);
-    if (hashWord > targetWords[7]) return false;
-
-    a += kInit[0];
-    b += kInit[1];
-    c += kInit[2];
-    d += kInit[3];
-    e += kInit[4];
-    f += kInit[5];
-    g += kInit[6];
-
-    if (hashWord == targetWords[7]) {
-        const uint32_t words[7] = {a, b, c, d, e, f, g};
-        for (int i = 6; i >= 0; --i) {
-            hashWord = bswap32(words[i]);
-            const uint32_t targetWord = targetWords[static_cast<size_t>(i)];
-            if (hashWord < targetWord) break;
-            if (hashWord > targetWord) return false;
-        }
-    }
-
-    finalState[0] = a;
-    finalState[1] = b;
-    finalState[2] = c;
-    finalState[3] = d;
-    finalState[4] = e;
-    finalState[5] = f;
-    finalState[6] = g;
-    finalState[7] = h;
-    return true;
-}
-
 void compress(uint32_t state[8], const uint8_t block[64]) {
     uint32_t w[16];
     for (size_t i = 0; i < 16; ++i) w[i] = readBe32(block + i * 4);
@@ -444,42 +360,23 @@ BITSY_ALWAYS_INLINE void doubleHeaderStateWithNonce(
     compressWords(finalState, finalChunk);
 }
 
-BITSY_ALWAYS_INLINE bool doubleHeaderMeetsTarget(
-    const std::array<uint32_t, 8>& firstMidstate,
-    const std::array<uint32_t, 3>& tailWords,
-    uint32_t nonce,
-    const std::array<uint32_t, 8>& targetWords,
-    uint32_t finalState[8]
-) {
-    uint32_t state[8];
-    std::copy(firstMidstate.begin(), firstMidstate.end(), state);
-
-    uint32_t secondChunk[16] = {
-        tailWords[0],
-        tailWords[1],
-        tailWords[2],
-        bswap32(nonce),
-        0x80000000u,
-        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-        0x00000280u
-    };
-    compressWords(state, secondChunk);
-
-    uint32_t finalChunk[16] = {
-        state[0], state[1], state[2], state[3],
-        state[4], state[5], state[6], state[7],
-        0x80000000u,
-        0u, 0u, 0u, 0u, 0u, 0u,
-        0x00000100u
-    };
-
-    return compressFinalWordsMeetsTarget(finalChunk, targetWords, finalState);
-}
-
 Hash32 hashFromState(const uint32_t finalState[8]) {
     Hash32 out{};
     for (size_t i = 0; i < 8; ++i) writeBe32(out.data() + i * 4, finalState[i]);
     return out;
+}
+
+BITSY_ALWAYS_INLINE bool stateMeetsTargetWords(
+    const uint32_t finalState[8],
+    const std::array<uint32_t, 8>& targetWords
+) {
+    for (int i = 7; i >= 0; --i) {
+        const uint32_t hashWord = bswap32(finalState[static_cast<size_t>(i)]);
+        const uint32_t targetWord = targetWords[static_cast<size_t>(i)];
+        if (hashWord < targetWord) return true;
+        if (hashWord > targetWord) return false;
+    }
+    return true;
 }
 
 Hash32 doubleHeaderWithNonce(
@@ -1159,17 +1056,11 @@ void BITSY_HOT minerWorker(
 
         for (int batch = 0; batch < 4096 && running.load(std::memory_order_relaxed); ++batch) {
             uint32_t finalState[8];
-            const bool meetsTarget = sha256::doubleHeaderMeetsTarget(
-                job->midstate,
-                job->tailWords,
-                nonce,
-                job->poolTargetWords,
-                finalState
-            );
+            sha256::doubleHeaderStateWithNonce(job->midstate, job->tailWords, nonce, finalState);
             ++localHashes;
             ++workerHashes;
 
-            if (meetsTarget) {
+            if (sha256::stateMeetsTargetWords(finalState, job->poolTargetWords)) {
                 const Hash32 hash = sha256::hashFromState(finalState);
                 const long double diff = difficultyFromHash(hash);
                 updateBestDifficulty(stats, diff);
@@ -1495,7 +1386,6 @@ bool runSelfTest() {
     };
     uint32_t finalState[8];
     sha256::doubleHeaderStateWithNonce(midstate, tailWords, 0x7c2bac1du, finalState);
-    uint32_t targetHitState[8];
     const Hash32 minedDigest = sha256::doubleHeaderWithNonce(midstate, tailWords, 0x7c2bac1du);
     std::string minedBlockHash(minedDigest.rbegin(), minedDigest.rend());
     const std::string minedBlockHashHex = bytesToHex(
@@ -1508,15 +1398,8 @@ bool runSelfTest() {
     }
     const Hash32 diff1Target = compactBitsToTarget(kDiff1Bits);
     const auto diff1TargetWords = targetCompareWords(diff1Target);
-    const bool fastTargetHit = sha256::doubleHeaderMeetsTarget(
-        midstate,
-        tailWords,
-        0x7c2bac1du,
-        diff1TargetWords,
-        targetHitState
-    );
-    if (hashMeetsTarget(minedDigest, diff1Target) != fastTargetHit ||
-        (fastTargetHit && !std::equal(std::begin(finalState), std::end(finalState), std::begin(targetHitState)))) {
+    if (hashMeetsTarget(minedDigest, diff1Target) !=
+        sha256::stateMeetsTargetWords(finalState, diff1TargetWords)) {
         std::cerr << "self-test failed: target word comparison\n";
         return false;
     }
