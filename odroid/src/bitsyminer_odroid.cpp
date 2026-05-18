@@ -54,6 +54,14 @@ constexpr uint32_t kDiff1Bits = 0x1d00ffff;
 constexpr long double kDiff1Target =
     26959535291011309493156476344723991336010898738574164086137773096960.0L;
 
+#if defined(__GNUC__) || defined(__clang__)
+#define BITSY_ALWAYS_INLINE inline __attribute__((always_inline))
+#define BITSY_HOT __attribute__((hot))
+#else
+#define BITSY_ALWAYS_INLINE inline
+#define BITSY_HOT
+#endif
+
 using Hash32 = std::array<uint8_t, 32>;
 using Header80 = std::array<uint8_t, 80>;
 
@@ -190,35 +198,35 @@ constexpr uint32_t kRound[64] = {
     0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
 };
 
-uint32_t rotr(uint32_t v, unsigned shift) {
+BITSY_ALWAYS_INLINE uint32_t rotr(uint32_t v, unsigned shift) {
     return (v >> shift) | (v << (32 - shift));
 }
 
-uint32_t ch(uint32_t x, uint32_t y, uint32_t z) {
+BITSY_ALWAYS_INLINE uint32_t ch(uint32_t x, uint32_t y, uint32_t z) {
     return z ^ (x & (y ^ z));
 }
 
-uint32_t maj(uint32_t x, uint32_t y, uint32_t z) {
+BITSY_ALWAYS_INLINE uint32_t maj(uint32_t x, uint32_t y, uint32_t z) {
     return (x & y) | (z & (x | y));
 }
 
-uint32_t bigSigma0(uint32_t x) {
+BITSY_ALWAYS_INLINE uint32_t bigSigma0(uint32_t x) {
     return rotr(x, 2) ^ rotr(x, 13) ^ rotr(x, 22);
 }
 
-uint32_t bigSigma1(uint32_t x) {
+BITSY_ALWAYS_INLINE uint32_t bigSigma1(uint32_t x) {
     return rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25);
 }
 
-uint32_t smallSigma0(uint32_t x) {
+BITSY_ALWAYS_INLINE uint32_t smallSigma0(uint32_t x) {
     return rotr(x, 7) ^ rotr(x, 18) ^ (x >> 3);
 }
 
-uint32_t smallSigma1(uint32_t x) {
+BITSY_ALWAYS_INLINE uint32_t smallSigma1(uint32_t x) {
     return rotr(x, 17) ^ rotr(x, 19) ^ (x >> 10);
 }
 
-void compressWords(uint32_t state[8], const uint32_t first16[16]) {
+BITSY_ALWAYS_INLINE void compressWords(uint32_t state[8], const uint32_t first16[16]) {
     uint32_t w[64];
     for (size_t i = 0; i < 16; ++i) w[i] = first16[i];
     for (size_t i = 16; i < 64; ++i) {
@@ -302,7 +310,7 @@ std::array<uint32_t, 8> midstate(const Header80& header) {
     return state;
 }
 
-void doubleHeaderStateWithNonce(
+BITSY_ALWAYS_INLINE void doubleHeaderStateWithNonce(
     const std::array<uint32_t, 8>& firstMidstate,
     const std::array<uint32_t, 3>& tailWords,
     uint32_t nonce,
@@ -340,14 +348,15 @@ Hash32 hashFromState(const uint32_t finalState[8]) {
     return out;
 }
 
-bool stateMeetsTarget(const uint32_t finalState[8], const Hash32& targetLe) {
-    for (int i = 31; i >= 0; --i) {
-        const uint32_t word = finalState[static_cast<size_t>(i) / 4];
-        const unsigned shift = static_cast<unsigned>(3 - (i & 3)) * 8;
-        const uint8_t hashByte = static_cast<uint8_t>(word >> shift);
-        const uint8_t targetByte = targetLe[static_cast<size_t>(i)];
-        if (hashByte < targetByte) return true;
-        if (hashByte > targetByte) return false;
+BITSY_ALWAYS_INLINE bool stateMeetsTargetWords(
+    const uint32_t finalState[8],
+    const std::array<uint32_t, 8>& targetWords
+) {
+    for (int i = 7; i >= 0; --i) {
+        const uint32_t hashWord = bswap32(finalState[static_cast<size_t>(i)]);
+        const uint32_t targetWord = targetWords[static_cast<size_t>(i)];
+        if (hashWord < targetWord) return true;
+        if (hashWord > targetWord) return false;
     }
     return true;
 }
@@ -588,6 +597,7 @@ struct MiningJob {
     std::array<uint32_t, 8> midstate{};
     std::array<uint32_t, 3> tailWords{};
     Hash32 poolTarget{};
+    std::array<uint32_t, 8> poolTargetWords{};
     Hash32 blockTarget{};
     uint32_t timestamp = 0;
     uint32_t nonceSeed = 0;
@@ -699,6 +709,18 @@ bool hashMeetsTarget(const Hash32& hashBe, const Hash32& targetLe) {
     return true;
 }
 
+std::array<uint32_t, 8> targetCompareWords(const Hash32& targetLe) {
+    std::array<uint32_t, 8> words{};
+    for (size_t i = 0; i < words.size(); ++i) {
+        const size_t base = i * 4;
+        words[i] = (static_cast<uint32_t>(targetLe[base + 3]) << 24) |
+                   (static_cast<uint32_t>(targetLe[base + 2]) << 16) |
+                   (static_cast<uint32_t>(targetLe[base + 1]) << 8) |
+                   static_cast<uint32_t>(targetLe[base]);
+    }
+    return words;
+}
+
 long double difficultyFromHash(const Hash32& hashBe) {
     long double hashValue = 0.0L;
     for (int i = 31; i >= 0; --i) {
@@ -769,6 +791,7 @@ std::shared_ptr<MiningJob> buildMiningJob(
         readBe32(job->header.data() + 72)
     };
     job->poolTarget = poolTarget;
+    job->poolTargetWords = targetCompareWords(poolTarget);
     job->blockTarget = compactBitsToTarget(bits);
 
     std::random_device rd;
@@ -984,7 +1007,7 @@ void updateBestDifficulty(Stats& stats, long double difficulty) {
     if (difficulty > stats.bestDifficulty) stats.bestDifficulty = difficulty;
 }
 
-void minerWorker(
+void BITSY_HOT minerWorker(
     int workerIndex,
     int threadCount,
     const Options& opt,
@@ -1019,7 +1042,7 @@ void minerWorker(
             ++localHashes;
             ++workerHashes;
 
-            if (sha256::stateMeetsTarget(finalState, job->poolTarget)) {
+            if (sha256::stateMeetsTargetWords(finalState, job->poolTargetWords)) {
                 const Hash32 hash = sha256::hashFromState(finalState);
                 const long double diff = difficultyFromHash(hash);
                 updateBestDifficulty(stats, diff);
@@ -1343,6 +1366,8 @@ bool runSelfTest() {
         readBe32(header.data() + 68),
         readBe32(header.data() + 72)
     };
+    uint32_t finalState[8];
+    sha256::doubleHeaderStateWithNonce(midstate, tailWords, 0x7c2bac1du, finalState);
     const Hash32 minedDigest = sha256::doubleHeaderWithNonce(midstate, tailWords, 0x7c2bac1du);
     std::string minedBlockHash(minedDigest.rbegin(), minedDigest.rend());
     const std::string minedBlockHashHex = bytesToHex(
@@ -1351,6 +1376,12 @@ bool runSelfTest() {
     );
     if (minedBlockHashHex != "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f") {
         std::cerr << "self-test failed: optimized header path got " << minedBlockHashHex << "\n";
+        return false;
+    }
+    const Hash32 diff1Target = compactBitsToTarget(kDiff1Bits);
+    if (hashMeetsTarget(minedDigest, diff1Target) !=
+        sha256::stateMeetsTargetWords(finalState, targetCompareWords(diff1Target))) {
+        std::cerr << "self-test failed: target word comparison\n";
         return false;
     }
 
@@ -1387,6 +1418,7 @@ int runBenchmark(const Options& opt) {
         readBe32(job->header.data() + 72)
     };
     job->poolTarget.fill(0x00);
+    job->poolTargetWords = targetCompareWords(job->poolTarget);
     job->blockTarget = compactBitsToTarget(kDiff1Bits);
     job->timestamp = 0x495fab29u;
 
