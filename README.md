@@ -47,6 +47,13 @@ After installing, you can follow the setup video [here](https://www.youtube.com/
 
 BitsyMiner started as a personal project to learn more about Bitcoin mining. For simplicity's sake, I began working in the [Arduino IDE](https://www.arduino.cc/en/software/), and I never left it.
 
+<br/><br/>
+### Native Linux / ODROID-MC1 Solo
+
+An experimental headless Linux build for the ODROID-MC1 Solo is available in `odroid/`. It targets the Exynos5422 ARMv7 hard-float platform and defaults to the Cortex-A15 cores for mining threads.
+
+See `odroid/README.md` for build and run instructions.
+
 
 <br/><br/>
 ### Required Libraries

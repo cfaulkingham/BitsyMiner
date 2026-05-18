@@ -1,5 +1,6 @@
 /assets/
 /binaries/
+/odroid/build/
 
 .pio/
 .vscode/
