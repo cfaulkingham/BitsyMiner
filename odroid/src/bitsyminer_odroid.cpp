@@ -72,6 +72,14 @@ constexpr long double kDiff1Target =
 using Hash32 = std::array<uint8_t, 32>;
 using Header80 = std::array<uint8_t, 80>;
 
+const char* shaBackendName() {
+#if BITSY_USE_NEON
+    return "neon4";
+#else
+    return "scalar";
+#endif
+}
+
 double monotonicSeconds() {
     using clock = std::chrono::steady_clock;
     static const auto start = clock::now();
@@ -1694,7 +1702,7 @@ bool runSelfTest() {
         return false;
     }
 
-    std::cerr << "self-test passed\n";
+    std::cerr << "self-test passed backend=" << shaBackendName() << "\n";
     return true;
 }
 
@@ -1753,7 +1761,8 @@ int runBenchmark(const Options& opt) {
     const uint64_t hashes = stats.hashes.load(std::memory_order_relaxed);
     const double rate = static_cast<double>(hashes) / static_cast<double>(opt.benchmarkSeconds);
     std::cerr << "benchmark: " << hashes << " hashes in " << opt.benchmarkSeconds
-              << "s, " << formatHashrate(rate) << "\n";
+              << "s, " << formatHashrate(rate)
+              << " backend=" << shaBackendName() << "\n";
     for (int i = 0; i < opt.threads; ++i) {
         const int core = opt.coreList.empty() ? i : opt.coreList[static_cast<size_t>(i) % opt.coreList.size()];
         const double workerRate = static_cast<double>(workerTotals[static_cast<size_t>(i)]) /
@@ -1801,7 +1810,8 @@ int main(int argc, char** argv) {
         MinerState minerState;
         Stats stats;
 
-        std::cerr << "starting " << opt.threads << " miner thread(s)";
+        std::cerr << "starting " << opt.threads << " miner thread(s)"
+                  << " backend=" << shaBackendName();
         if (opt.useAffinity) {
             std::cerr << " with CPU affinity";
         }
