@@ -241,10 +241,7 @@ BITSY_ALWAYS_INLINE uint32_t smallSigma1(uint32_t x) {
     return rotr(x, 17) ^ rotr(x, 19) ^ (x >> 10);
 }
 
-BITSY_ALWAYS_INLINE void compressWords(uint32_t state[8], const uint32_t first16[16]) {
-    uint32_t w[16];
-    for (size_t i = 0; i < 16; ++i) w[i] = first16[i];
-
+BITSY_ALWAYS_INLINE void compressSchedule(uint32_t state[8], uint32_t w[16]) {
     uint32_t a = state[0];
     uint32_t b = state[1];
     uint32_t c = state[2];
@@ -301,7 +298,7 @@ BITSY_ALWAYS_INLINE void compressWords(uint32_t state[8], const uint32_t first16
 void compress(uint32_t state[8], const uint8_t block[64]) {
     uint32_t w[16];
     for (size_t i = 0; i < 16; ++i) w[i] = readBe32(block + i * 4);
-    compressWords(state, w);
+    compressSchedule(state, w);
 }
 
 Hash32 digest(const uint8_t* data, size_t len) {
@@ -343,36 +340,148 @@ std::array<uint32_t, 8> midstate(const Header80& header) {
     return state;
 }
 
+struct HeaderWork {
+    std::array<uint32_t, 8> midstate{};
+    std::array<uint32_t, 8> secondStateAfterRound2{};
+    std::array<uint32_t, 3> tailWords{};
+};
+
+BITSY_ALWAYS_INLINE void roundStep(
+    uint32_t& a,
+    uint32_t& b,
+    uint32_t& c,
+    uint32_t& d,
+    uint32_t& e,
+    uint32_t& f,
+    uint32_t& g,
+    uint32_t& h,
+    uint32_t wi,
+    uint32_t ki
+) {
+    const uint32_t t1 = h + bigSigma1(e) + ch(e, f, g) + ki + wi;
+    const uint32_t t2 = bigSigma0(a) + maj(a, b, c);
+    h = g;
+    g = f;
+    f = e;
+    e = d + t1;
+    d = c;
+    c = b;
+    b = a;
+    a = t1 + t2;
+}
+
+HeaderWork prepareHeaderWork(
+    const std::array<uint32_t, 8>& firstMidstate,
+    const std::array<uint32_t, 3>& tailWords
+) {
+    HeaderWork work;
+    work.midstate = firstMidstate;
+    work.tailWords = tailWords;
+
+    uint32_t a = firstMidstate[0];
+    uint32_t b = firstMidstate[1];
+    uint32_t c = firstMidstate[2];
+    uint32_t d = firstMidstate[3];
+    uint32_t e = firstMidstate[4];
+    uint32_t f = firstMidstate[5];
+    uint32_t g = firstMidstate[6];
+    uint32_t h = firstMidstate[7];
+
+    roundStep(a, b, c, d, e, f, g, h, tailWords[0], kRound[0]);
+    roundStep(a, b, c, d, e, f, g, h, tailWords[1], kRound[1]);
+    roundStep(a, b, c, d, e, f, g, h, tailWords[2], kRound[2]);
+
+    work.secondStateAfterRound2 = {a, b, c, d, e, f, g, h};
+    return work;
+}
+
+BITSY_ALWAYS_INLINE void doubleHeaderStateWithPreparedNonce(
+    const HeaderWork& work,
+    uint32_t nonce,
+    uint32_t finalState[8]
+) {
+    uint32_t w[16] = {
+        work.tailWords[0],
+        work.tailWords[1],
+        work.tailWords[2],
+        bswap32(nonce),
+        0x80000000u,
+        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        0x00000280u
+    };
+
+    uint32_t a = work.secondStateAfterRound2[0];
+    uint32_t b = work.secondStateAfterRound2[1];
+    uint32_t c = work.secondStateAfterRound2[2];
+    uint32_t d = work.secondStateAfterRound2[3];
+    uint32_t e = work.secondStateAfterRound2[4];
+    uint32_t f = work.secondStateAfterRound2[5];
+    uint32_t g = work.secondStateAfterRound2[6];
+    uint32_t h = work.secondStateAfterRound2[7];
+
+#define SHA256_PREPARED_ROUND(i) do { \
+        const uint32_t wi = ((i) < 16) ? w[(i)] : \
+            (w[(i) & 15] += smallSigma0(w[((i) + 1) & 15]) + w[((i) + 9) & 15] + smallSigma1(w[((i) + 14) & 15])); \
+        const uint32_t t1 = h + bigSigma1(e) + ch(e, f, g) + kRound[(i)] + wi; \
+        const uint32_t t2 = bigSigma0(a) + maj(a, b, c); \
+        h = g; \
+        g = f; \
+        f = e; \
+        e = d + t1; \
+        d = c; \
+        c = b; \
+        b = a; \
+        a = t1 + t2; \
+    } while (0)
+
+    SHA256_PREPARED_ROUND(3);
+    SHA256_PREPARED_ROUND(4); SHA256_PREPARED_ROUND(5); SHA256_PREPARED_ROUND(6); SHA256_PREPARED_ROUND(7);
+    SHA256_PREPARED_ROUND(8); SHA256_PREPARED_ROUND(9); SHA256_PREPARED_ROUND(10); SHA256_PREPARED_ROUND(11);
+    SHA256_PREPARED_ROUND(12); SHA256_PREPARED_ROUND(13); SHA256_PREPARED_ROUND(14); SHA256_PREPARED_ROUND(15);
+    SHA256_PREPARED_ROUND(16); SHA256_PREPARED_ROUND(17); SHA256_PREPARED_ROUND(18); SHA256_PREPARED_ROUND(19);
+    SHA256_PREPARED_ROUND(20); SHA256_PREPARED_ROUND(21); SHA256_PREPARED_ROUND(22); SHA256_PREPARED_ROUND(23);
+    SHA256_PREPARED_ROUND(24); SHA256_PREPARED_ROUND(25); SHA256_PREPARED_ROUND(26); SHA256_PREPARED_ROUND(27);
+    SHA256_PREPARED_ROUND(28); SHA256_PREPARED_ROUND(29); SHA256_PREPARED_ROUND(30); SHA256_PREPARED_ROUND(31);
+    SHA256_PREPARED_ROUND(32); SHA256_PREPARED_ROUND(33); SHA256_PREPARED_ROUND(34); SHA256_PREPARED_ROUND(35);
+    SHA256_PREPARED_ROUND(36); SHA256_PREPARED_ROUND(37); SHA256_PREPARED_ROUND(38); SHA256_PREPARED_ROUND(39);
+    SHA256_PREPARED_ROUND(40); SHA256_PREPARED_ROUND(41); SHA256_PREPARED_ROUND(42); SHA256_PREPARED_ROUND(43);
+    SHA256_PREPARED_ROUND(44); SHA256_PREPARED_ROUND(45); SHA256_PREPARED_ROUND(46); SHA256_PREPARED_ROUND(47);
+    SHA256_PREPARED_ROUND(48); SHA256_PREPARED_ROUND(49); SHA256_PREPARED_ROUND(50); SHA256_PREPARED_ROUND(51);
+    SHA256_PREPARED_ROUND(52); SHA256_PREPARED_ROUND(53); SHA256_PREPARED_ROUND(54); SHA256_PREPARED_ROUND(55);
+    SHA256_PREPARED_ROUND(56); SHA256_PREPARED_ROUND(57); SHA256_PREPARED_ROUND(58); SHA256_PREPARED_ROUND(59);
+    SHA256_PREPARED_ROUND(60); SHA256_PREPARED_ROUND(61); SHA256_PREPARED_ROUND(62); SHA256_PREPARED_ROUND(63);
+
+#undef SHA256_PREPARED_ROUND
+
+    w[0] = work.midstate[0] + a;
+    w[1] = work.midstate[1] + b;
+    w[2] = work.midstate[2] + c;
+    w[3] = work.midstate[3] + d;
+    w[4] = work.midstate[4] + e;
+    w[5] = work.midstate[5] + f;
+    w[6] = work.midstate[6] + g;
+    w[7] = work.midstate[7] + h;
+    w[8] = 0x80000000u;
+    w[9] = 0u;
+    w[10] = 0u;
+    w[11] = 0u;
+    w[12] = 0u;
+    w[13] = 0u;
+    w[14] = 0u;
+    w[15] = 0x00000100u;
+
+    std::copy(std::begin(kInit), std::end(kInit), finalState);
+    compressSchedule(finalState, w);
+}
+
 BITSY_ALWAYS_INLINE void doubleHeaderStateWithNonce(
     const std::array<uint32_t, 8>& firstMidstate,
     const std::array<uint32_t, 3>& tailWords,
     uint32_t nonce,
     uint32_t finalState[8]
 ) {
-    uint32_t state[8];
-    std::copy(firstMidstate.begin(), firstMidstate.end(), state);
-
-    uint32_t secondChunk[16] = {
-        tailWords[0],
-        tailWords[1],
-        tailWords[2],
-        bswap32(nonce),
-        0x80000000u,
-        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-        0x00000280u
-    };
-    compressWords(state, secondChunk);
-
-    uint32_t finalChunk[16] = {
-        state[0], state[1], state[2], state[3],
-        state[4], state[5], state[6], state[7],
-        0x80000000u,
-        0u, 0u, 0u, 0u, 0u, 0u,
-        0x00000100u
-    };
-
-    std::copy(std::begin(kInit), std::end(kInit), finalState);
-    compressWords(finalState, finalChunk);
+    const HeaderWork work = prepareHeaderWork(firstMidstate, tailWords);
+    doubleHeaderStateWithPreparedNonce(work, nonce, finalState);
 }
 
 Hash32 hashFromState(const uint32_t finalState[8]) {
@@ -826,6 +935,7 @@ struct MiningJob {
     Header80 header{};
     std::array<uint32_t, 8> midstate{};
     std::array<uint32_t, 3> tailWords{};
+    sha256::HeaderWork headerWork{};
     Hash32 poolTarget{};
     std::array<uint32_t, 8> poolTargetWords{};
     Hash32 blockTarget{};
@@ -1020,6 +1130,7 @@ std::shared_ptr<MiningJob> buildMiningJob(
         readBe32(job->header.data() + 68),
         readBe32(job->header.data() + 72)
     };
+    job->headerWork = sha256::prepareHeaderWork(job->midstate, job->tailWords);
     job->poolTarget = poolTarget;
     job->poolTargetWords = targetCompareWords(poolTarget);
     job->blockTarget = compactBitsToTarget(bits);
@@ -1315,7 +1426,7 @@ void BITSY_HOT minerWorker(
             nonce += static_cast<uint32_t>(threadCount * 4);
 #else
             uint32_t finalState[8];
-            sha256::doubleHeaderStateWithNonce(job->midstate, job->tailWords, nonce, finalState);
+            sha256::doubleHeaderStateWithPreparedNonce(job->headerWork, nonce, finalState);
             ++localHashes;
             ++workerHashes;
             ++batch;
@@ -1728,6 +1839,7 @@ int runBenchmark(const Options& opt) {
         readBe32(job->header.data() + 68),
         readBe32(job->header.data() + 72)
     };
+    job->headerWork = sha256::prepareHeaderWork(job->midstate, job->tailWords);
     job->poolTarget.fill(0x00);
     job->poolTargetWords = targetCompareWords(job->poolTarget);
     job->blockTarget = compactBitsToTarget(kDiff1Bits);
