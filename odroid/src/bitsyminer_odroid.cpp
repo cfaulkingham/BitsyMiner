@@ -395,20 +395,27 @@ HeaderWork prepareHeaderWork(
     return work;
 }
 
-BITSY_ALWAYS_INLINE void doubleHeaderStateWithPreparedNonce(
+BITSY_ALWAYS_INLINE void finalChunkWordsWithPreparedNonce(
     const HeaderWork& work,
     uint32_t nonce,
-    uint32_t finalState[8]
+    uint32_t w[16]
 ) {
-    uint32_t w[16] = {
-        work.tailWords[0],
-        work.tailWords[1],
-        work.tailWords[2],
-        bswap32(nonce),
-        0x80000000u,
-        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-        0x00000280u
-    };
+    w[0] = work.tailWords[0];
+    w[1] = work.tailWords[1];
+    w[2] = work.tailWords[2];
+    w[3] = bswap32(nonce);
+    w[4] = 0x80000000u;
+    w[5] = 0u;
+    w[6] = 0u;
+    w[7] = 0u;
+    w[8] = 0u;
+    w[9] = 0u;
+    w[10] = 0u;
+    w[11] = 0u;
+    w[12] = 0u;
+    w[13] = 0u;
+    w[14] = 0u;
+    w[15] = 0x00000280u;
 
     uint32_t a = work.secondStateAfterRound2[0];
     uint32_t b = work.secondStateAfterRound2[1];
@@ -469,7 +476,71 @@ BITSY_ALWAYS_INLINE void doubleHeaderStateWithPreparedNonce(
     w[13] = 0u;
     w[14] = 0u;
     w[15] = 0x00000100u;
+}
 
+BITSY_ALWAYS_INLINE uint32_t compressScheduleHighWord(uint32_t w[16]) {
+    uint32_t a = kInit[0];
+    uint32_t b = kInit[1];
+    uint32_t c = kInit[2];
+    uint32_t d = kInit[3];
+    uint32_t e = kInit[4];
+    uint32_t f = kInit[5];
+    uint32_t g = kInit[6];
+    uint32_t h = kInit[7];
+
+#define SHA256_HIGH_ROUND(i) do { \
+        const uint32_t wi = ((i) < 16) ? w[(i)] : \
+            (w[(i) & 15] += smallSigma0(w[((i) + 1) & 15]) + w[((i) + 9) & 15] + smallSigma1(w[((i) + 14) & 15])); \
+        const uint32_t t1 = h + bigSigma1(e) + ch(e, f, g) + kRound[(i)] + wi; \
+        const uint32_t t2 = bigSigma0(a) + maj(a, b, c); \
+        h = g; \
+        g = f; \
+        f = e; \
+        e = d + t1; \
+        d = c; \
+        c = b; \
+        b = a; \
+        a = t1 + t2; \
+    } while (0)
+
+    SHA256_HIGH_ROUND(0); SHA256_HIGH_ROUND(1); SHA256_HIGH_ROUND(2); SHA256_HIGH_ROUND(3);
+    SHA256_HIGH_ROUND(4); SHA256_HIGH_ROUND(5); SHA256_HIGH_ROUND(6); SHA256_HIGH_ROUND(7);
+    SHA256_HIGH_ROUND(8); SHA256_HIGH_ROUND(9); SHA256_HIGH_ROUND(10); SHA256_HIGH_ROUND(11);
+    SHA256_HIGH_ROUND(12); SHA256_HIGH_ROUND(13); SHA256_HIGH_ROUND(14); SHA256_HIGH_ROUND(15);
+    SHA256_HIGH_ROUND(16); SHA256_HIGH_ROUND(17); SHA256_HIGH_ROUND(18); SHA256_HIGH_ROUND(19);
+    SHA256_HIGH_ROUND(20); SHA256_HIGH_ROUND(21); SHA256_HIGH_ROUND(22); SHA256_HIGH_ROUND(23);
+    SHA256_HIGH_ROUND(24); SHA256_HIGH_ROUND(25); SHA256_HIGH_ROUND(26); SHA256_HIGH_ROUND(27);
+    SHA256_HIGH_ROUND(28); SHA256_HIGH_ROUND(29); SHA256_HIGH_ROUND(30); SHA256_HIGH_ROUND(31);
+    SHA256_HIGH_ROUND(32); SHA256_HIGH_ROUND(33); SHA256_HIGH_ROUND(34); SHA256_HIGH_ROUND(35);
+    SHA256_HIGH_ROUND(36); SHA256_HIGH_ROUND(37); SHA256_HIGH_ROUND(38); SHA256_HIGH_ROUND(39);
+    SHA256_HIGH_ROUND(40); SHA256_HIGH_ROUND(41); SHA256_HIGH_ROUND(42); SHA256_HIGH_ROUND(43);
+    SHA256_HIGH_ROUND(44); SHA256_HIGH_ROUND(45); SHA256_HIGH_ROUND(46); SHA256_HIGH_ROUND(47);
+    SHA256_HIGH_ROUND(48); SHA256_HIGH_ROUND(49); SHA256_HIGH_ROUND(50); SHA256_HIGH_ROUND(51);
+    SHA256_HIGH_ROUND(52); SHA256_HIGH_ROUND(53); SHA256_HIGH_ROUND(54); SHA256_HIGH_ROUND(55);
+    SHA256_HIGH_ROUND(56); SHA256_HIGH_ROUND(57); SHA256_HIGH_ROUND(58); SHA256_HIGH_ROUND(59);
+    SHA256_HIGH_ROUND(60); SHA256_HIGH_ROUND(61); SHA256_HIGH_ROUND(62); SHA256_HIGH_ROUND(63);
+
+#undef SHA256_HIGH_ROUND
+
+    return kInit[7] + h;
+}
+
+BITSY_ALWAYS_INLINE uint32_t doubleHeaderHighCompareWordWithPreparedNonce(
+    const HeaderWork& work,
+    uint32_t nonce
+) {
+    uint32_t w[16];
+    finalChunkWordsWithPreparedNonce(work, nonce, w);
+    return bswap32(compressScheduleHighWord(w));
+}
+
+BITSY_ALWAYS_INLINE void doubleHeaderStateWithPreparedNonce(
+    const HeaderWork& work,
+    uint32_t nonce,
+    uint32_t finalState[8]
+) {
+    uint32_t w[16];
+    finalChunkWordsWithPreparedNonce(work, nonce, w);
     std::copy(std::begin(kInit), std::end(kInit), finalState);
     compressSchedule(finalState, w);
 }
@@ -1377,7 +1448,7 @@ void BITSY_HOT minerWorker(
             nonce = job->nonceSeed + static_cast<uint32_t>(workerIndex);
         }
 
-        for (int batch = 0; batch < 4096 && running.load(std::memory_order_relaxed);) {
+        for (int batch = 0; batch < 4096;) {
 #if BITSY_USE_NEON
             uint32x4_t finalState4[8];
             sha256::doubleHeaderState4WithNonce(
@@ -1425,13 +1496,20 @@ void BITSY_HOT minerWorker(
 
             nonce += static_cast<uint32_t>(threadCount * 4);
 #else
-            uint32_t finalState[8];
-            sha256::doubleHeaderStateWithPreparedNonce(job->headerWork, nonce, finalState);
+            const uint32_t highWord =
+                sha256::doubleHeaderHighCompareWordWithPreparedNonce(job->headerWork, nonce);
             ++localHashes;
             ++workerHashes;
             ++batch;
 
-            if (sha256::stateMeetsTargetWords(finalState, job->poolTargetWords)) {
+            if (highWord <= job->poolTargetWords[7]) {
+                uint32_t finalState[8];
+                sha256::doubleHeaderStateWithPreparedNonce(job->headerWork, nonce, finalState);
+                if (!sha256::stateMeetsTargetWords(finalState, job->poolTargetWords)) {
+                    nonce += static_cast<uint32_t>(threadCount);
+                    continue;
+                }
+
                 const Hash32 hash = sha256::hashFromState(finalState);
                 const long double diff = difficultyFromHash(hash);
                 updateBestDifficulty(stats, diff);
@@ -1756,6 +1834,7 @@ bool runSelfTest() {
         readBe32(header.data() + 68),
         readBe32(header.data() + 72)
     };
+    const auto headerWork = sha256::prepareHeaderWork(midstate, tailWords);
     uint32_t finalState[8];
     sha256::doubleHeaderStateWithNonce(midstate, tailWords, 0x7c2bac1du, finalState);
     const Hash32 minedDigest = sha256::doubleHeaderWithNonce(midstate, tailWords, 0x7c2bac1du);
@@ -1766,6 +1845,11 @@ bool runSelfTest() {
     );
     if (minedBlockHashHex != "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f") {
         std::cerr << "self-test failed: optimized header path got " << minedBlockHashHex << "\n";
+        return false;
+    }
+    if (sha256::doubleHeaderHighCompareWordWithPreparedNonce(headerWork, 0x7c2bac1du) !=
+        bswap32(finalState[7])) {
+        std::cerr << "self-test failed: high-word fast path\n";
         return false;
     }
     const Hash32 diff1Target = compactBitsToTarget(kDiff1Bits);
