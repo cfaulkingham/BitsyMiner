@@ -302,10 +302,11 @@ std::array<uint32_t, 8> midstate(const Header80& header) {
     return state;
 }
 
-Hash32 doubleHeaderWithNonce(
+void doubleHeaderStateWithNonce(
     const std::array<uint32_t, 8>& firstMidstate,
     const std::array<uint32_t, 3>& tailWords,
-    uint32_t nonce
+    uint32_t nonce,
+    uint32_t finalState[8]
 ) {
     uint32_t state[8];
     std::copy(firstMidstate.begin(), firstMidstate.end(), state);
@@ -329,13 +330,36 @@ Hash32 doubleHeaderWithNonce(
         0x00000100u
     };
 
-    uint32_t finalState[8];
     std::copy(std::begin(kInit), std::end(kInit), finalState);
     compressWords(finalState, finalChunk);
+}
 
+Hash32 hashFromState(const uint32_t finalState[8]) {
     Hash32 out{};
     for (size_t i = 0; i < 8; ++i) writeBe32(out.data() + i * 4, finalState[i]);
     return out;
+}
+
+bool stateMeetsTarget(const uint32_t finalState[8], const Hash32& targetLe) {
+    for (int i = 31; i >= 0; --i) {
+        const uint32_t word = finalState[static_cast<size_t>(i) / 4];
+        const unsigned shift = static_cast<unsigned>(3 - (i & 3)) * 8;
+        const uint8_t hashByte = static_cast<uint8_t>(word >> shift);
+        const uint8_t targetByte = targetLe[static_cast<size_t>(i)];
+        if (hashByte < targetByte) return true;
+        if (hashByte > targetByte) return false;
+    }
+    return true;
+}
+
+Hash32 doubleHeaderWithNonce(
+    const std::array<uint32_t, 8>& firstMidstate,
+    const std::array<uint32_t, 3>& tailWords,
+    uint32_t nonce
+) {
+    uint32_t finalState[8];
+    doubleHeaderStateWithNonce(firstMidstate, tailWords, nonce, finalState);
+    return hashFromState(finalState);
 }
 
 }  // namespace sha256
@@ -988,10 +1012,12 @@ void minerWorker(
         }
 
         for (int batch = 0; batch < 4096 && running.load(std::memory_order_relaxed); ++batch) {
-            const Hash32 hash = sha256::doubleHeaderWithNonce(job->midstate, job->tailWords, nonce);
+            uint32_t finalState[8];
+            sha256::doubleHeaderStateWithNonce(job->midstate, job->tailWords, nonce, finalState);
             ++localHashes;
 
-            if (hashMeetsTarget(hash, job->poolTarget)) {
+            if (sha256::stateMeetsTarget(finalState, job->poolTarget)) {
+                const Hash32 hash = sha256::hashFromState(finalState);
                 const long double diff = difficultyFromHash(hash);
                 updateBestDifficulty(stats, diff);
 
