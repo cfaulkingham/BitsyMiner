@@ -17,20 +17,60 @@ The current code includes inline assembly that is very hardware-dependent and is
 <br/><br/>
 ### Installation
 
-**Option 1:** Compile from Source
+**Option 1:** Compile from Source with PlatformIO
+
+Install [PlatformIO](https://platformio.org/) using either the VS Code extension or PlatformIO Core.
+
+The included `platformio.ini` is configured for the LCDWiki / Cheap Yellow Display 2.8" ESP32-32E board with an ILI9341 display and XPT2046 touch controller. The default environment is `cyd`, and PlatformIO will install the Arduino framework and project libraries automatically on the first build.
+
+From the project root, build the firmware:
+
+```sh
+pio run
+```
+
+Connect the ESP32 board over USB, then upload:
+
+```sh
+pio run -t upload
+```
+
+To specify a serial port explicitly, list connected devices and pass the upload port:
+
+```sh
+pio device list
+pio run -t upload --upload-port /dev/tty.usbserial-0001
+```
+
+Open the serial monitor at the configured `115200` baud rate:
+
+```sh
+pio device monitor -b 115200
+```
+
+The PlatformIO configuration already sets the required Arduino core placement and partition scheme:
+
+- `ARDUINO_RUNNING_CORE=0`
+- `ARDUINO_EVENT_RUNNING_CORE=0`
+- `board_build.partitions = min_spiffs.csv`
+
+To build for a different supported hardware target, update the `build_flags` in `platformio.ini`. For example, the current `cyd` environment defines `ESP32_2432S028` and `LCDWIKI_ESP32_32E_28`. Headless builds should use `ESP32_DEV_HEADLESS`, and ST7789 display builds should define `ST7789_LCD` with matching TFT_eSPI driver and pin settings.
+
+
+**Option 2:** Compile from Source with the Arduino IDE
 
 Set up your environment by installing all of the required libraries in the Arduino IDE, attach your device, compile, and install.
 
-Changes to display type can be set in defines_n_types.h.
+Changes to display type can be set in `defines_n_types.h`.
 
 In the tools menu, change the settings as follow:
 
 - Arduino Runs on Core 0
 - Events Run on Core 0
-- Parition Scheme:  Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)
+- Partition Scheme: Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)
 
 
-**Option 2:** Install from Binaries
+**Option 3:** Install from Binaries
 
 You can now find the binaries in the individual releases. You will see two types of binaries, one for doing a new install, and one for upgrading a device. The first will overwrite the entire device, and the latter can be used for just overwriting the application area so you don't lose your data.
 
@@ -45,18 +85,13 @@ After installing, you can follow the setup video [here](https://www.youtube.com/
 <br/><br/>
 ### Programming Environment
 
-BitsyMiner started as a personal project to learn more about Bitcoin mining. For simplicity's sake, I began working in the [Arduino IDE](https://www.arduino.cc/en/software/), and I never left it.
-
-<br/><br/>
-### Native Linux / ODROID-MC1 Solo
-
-An experimental headless Linux build for the ODROID-MC1 Solo is available in `odroid/`. It targets the Exynos5422 ARMv7 hard-float platform and defaults to the Cortex-A15 cores for mining threads.
-
-See `odroid/README.md` for build and run instructions.
+BitsyMiner started as a personal project to learn more about Bitcoin mining. For simplicity's sake, I began working in the [Arduino IDE](https://www.arduino.cc/en/software/). This repository now also includes a PlatformIO configuration for repeatable command-line and VS Code builds.
 
 
 <br/><br/>
 ### Required Libraries
+
+When using PlatformIO, these libraries are declared in `platformio.ini` under `lib_deps` and are installed automatically. Arduino IDE users should install them manually.
 
 ArduinoJson
 Copyright © 2014-2024, Benoit BLANCHON
