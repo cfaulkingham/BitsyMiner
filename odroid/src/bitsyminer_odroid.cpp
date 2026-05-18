@@ -43,7 +43,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#if defined(BITSY_FORCE_NEON) || defined(__ARM_NEON) || defined(__ARM_NEON__)
+#if defined(BITSY_ENABLE_NEON_SHA) && BITSY_ENABLE_NEON_SHA
 #include <arm_neon.h>
 #define BITSY_USE_NEON 1
 #else

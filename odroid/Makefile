@@ -6,12 +6,14 @@ BUILD_DIR := build
 SRC := src/bitsyminer_odroid.cpp
 HOST_BIN := $(BUILD_DIR)/bitsyminer-host
 ODROID_BIN := $(BUILD_DIR)/bitsyminer-odroid-mc1-solo
+ODROID_NEON_BIN := $(BUILD_DIR)/bitsyminer-odroid-mc1-solo-neon
 
 COMMON_CXXFLAGS := -std=c++17 -Wall -Wextra -Wpedantic -pthread
 RELEASE_FLAGS := -O3 -DNDEBUG -fomit-frame-pointer -funroll-loops
-ODROID_FLAGS := -mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard -marm -flto -DBITSY_ODROID_MC1_SOLO=1 -DBITSY_FORCE_NEON=1
+ODROID_FLAGS := -mcpu=cortex-a15 -mfpu=neon-vfpv4 -mfloat-abi=hard -marm -flto -DBITSY_ODROID_MC1_SOLO=1
+ODROID_NEON_FLAGS := $(ODROID_FLAGS) -DBITSY_ENABLE_NEON_SHA=1
 
-.PHONY: all host odroid odroid-local self-test clean
+.PHONY: all host odroid odroid-local odroid-neon odroid-neon-local self-test clean
 
 all: host
 
@@ -23,6 +25,12 @@ odroid-local:
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(COMMON_CXXFLAGS) $(RELEASE_FLAGS) $(ODROID_FLAGS) -o $(ODROID_BIN) $(SRC)
 
+odroid-neon: $(ODROID_NEON_BIN)
+
+odroid-neon-local:
+	mkdir -p $(BUILD_DIR)
+	$(CXX) $(COMMON_CXXFLAGS) $(RELEASE_FLAGS) $(ODROID_NEON_FLAGS) -o $(ODROID_NEON_BIN) $(SRC)
+
 $(HOST_BIN): $(SRC)
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(COMMON_CXXFLAGS) -O3 -g -o $@ $<
@@ -30,6 +38,11 @@ $(HOST_BIN): $(SRC)
 $(ODROID_BIN): $(SRC)
 	mkdir -p $(BUILD_DIR)
 	$(ODROID_CXX) $(COMMON_CXXFLAGS) $(RELEASE_FLAGS) $(ODROID_FLAGS) -o $@ $<
+	@if [ -n "$(ODROID_STRIP)" ]; then $(ODROID_STRIP) --strip-unneeded $@; fi
+
+$(ODROID_NEON_BIN): $(SRC)
+	mkdir -p $(BUILD_DIR)
+	$(ODROID_CXX) $(COMMON_CXXFLAGS) $(RELEASE_FLAGS) $(ODROID_NEON_FLAGS) -o $@ $<
 	@if [ -n "$(ODROID_STRIP)" ]; then $(ODROID_STRIP) --strip-unneeded $@; fi
 
 self-test: $(HOST_BIN)
