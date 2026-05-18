@@ -22,13 +22,6 @@ The binary is written to:
 odroid/build/bitsyminer-odroid-mc1-solo
 ```
 
-The default scalar build uses the 2-lane interleaved scalar backend (`backend=scalar2`).
-For an A/B comparison against the previous single-lane scalar loop:
-
-```sh
-make -C odroid odroid-scalar1-local
-```
-
 ## Cross-compile from another Linux machine
 
 ```sh

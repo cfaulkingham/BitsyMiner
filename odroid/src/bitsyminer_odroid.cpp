@@ -50,10 +50,6 @@
 #define BITSY_USE_NEON 0
 #endif
 
-#ifndef BITSY_SCALAR_INTERLEAVE2
-#define BITSY_SCALAR_INTERLEAVE2 1
-#endif
-
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
 #endif
@@ -79,8 +75,6 @@ using Header80 = std::array<uint8_t, 80>;
 const char* shaBackendName() {
 #if BITSY_USE_NEON
     return "neon4";
-#elif BITSY_SCALAR_INTERLEAVE2
-    return "scalar2";
 #else
     return "scalar";
 #endif
@@ -539,234 +533,6 @@ BITSY_ALWAYS_INLINE uint32_t doubleHeaderHighCompareWordWithPreparedNonce(
     finalChunkWordsWithPreparedNonce(work, nonce, w);
     return bswap32(compressScheduleHighWord(w));
 }
-
-#if !BITSY_USE_NEON && BITSY_SCALAR_INTERLEAVE2
-
-struct HighCompareWords2 {
-    uint32_t first;
-    uint32_t second;
-};
-
-BITSY_ALWAYS_INLINE void finalChunkWordsWithPreparedNonce2(
-    const HeaderWork& work,
-    uint32_t nonce0,
-    uint32_t nonce1,
-    uint32_t w0[16],
-    uint32_t w1[16]
-) {
-    w0[0] = work.tailWords[0];
-    w0[1] = work.tailWords[1];
-    w0[2] = work.tailWords[2];
-    w0[3] = bswap32(nonce0);
-    w0[4] = 0x80000000u;
-    w0[5] = 0u;
-    w0[6] = 0u;
-    w0[7] = 0u;
-    w0[8] = 0u;
-    w0[9] = 0u;
-    w0[10] = 0u;
-    w0[11] = 0u;
-    w0[12] = 0u;
-    w0[13] = 0u;
-    w0[14] = 0u;
-    w0[15] = 0x00000280u;
-
-    w1[0] = work.tailWords[0];
-    w1[1] = work.tailWords[1];
-    w1[2] = work.tailWords[2];
-    w1[3] = bswap32(nonce1);
-    w1[4] = 0x80000000u;
-    w1[5] = 0u;
-    w1[6] = 0u;
-    w1[7] = 0u;
-    w1[8] = 0u;
-    w1[9] = 0u;
-    w1[10] = 0u;
-    w1[11] = 0u;
-    w1[12] = 0u;
-    w1[13] = 0u;
-    w1[14] = 0u;
-    w1[15] = 0x00000280u;
-
-    uint32_t a0 = work.secondStateAfterRound2[0];
-    uint32_t b0 = work.secondStateAfterRound2[1];
-    uint32_t c0 = work.secondStateAfterRound2[2];
-    uint32_t d0 = work.secondStateAfterRound2[3];
-    uint32_t e0 = work.secondStateAfterRound2[4];
-    uint32_t f0 = work.secondStateAfterRound2[5];
-    uint32_t g0 = work.secondStateAfterRound2[6];
-    uint32_t h0 = work.secondStateAfterRound2[7];
-
-    uint32_t a1 = a0;
-    uint32_t b1 = b0;
-    uint32_t c1 = c0;
-    uint32_t d1 = d0;
-    uint32_t e1 = e0;
-    uint32_t f1 = f0;
-    uint32_t g1 = g0;
-    uint32_t h1 = h0;
-
-#define SHA256_PREPARED_ROUND2(i) do { \
-        const uint32_t wi0 = ((i) < 16) ? w0[(i)] : \
-            (w0[(i) & 15] += smallSigma0(w0[((i) + 1) & 15]) + w0[((i) + 9) & 15] + smallSigma1(w0[((i) + 14) & 15])); \
-        const uint32_t t10 = h0 + bigSigma1(e0) + ch(e0, f0, g0) + kRound[(i)] + wi0; \
-        const uint32_t t20 = bigSigma0(a0) + maj(a0, b0, c0); \
-        h0 = g0; \
-        g0 = f0; \
-        f0 = e0; \
-        e0 = d0 + t10; \
-        d0 = c0; \
-        c0 = b0; \
-        b0 = a0; \
-        a0 = t10 + t20; \
-        const uint32_t wi1 = ((i) < 16) ? w1[(i)] : \
-            (w1[(i) & 15] += smallSigma0(w1[((i) + 1) & 15]) + w1[((i) + 9) & 15] + smallSigma1(w1[((i) + 14) & 15])); \
-        const uint32_t t11 = h1 + bigSigma1(e1) + ch(e1, f1, g1) + kRound[(i)] + wi1; \
-        const uint32_t t21 = bigSigma0(a1) + maj(a1, b1, c1); \
-        h1 = g1; \
-        g1 = f1; \
-        f1 = e1; \
-        e1 = d1 + t11; \
-        d1 = c1; \
-        c1 = b1; \
-        b1 = a1; \
-        a1 = t11 + t21; \
-    } while (0)
-
-    SHA256_PREPARED_ROUND2(3);
-    SHA256_PREPARED_ROUND2(4); SHA256_PREPARED_ROUND2(5); SHA256_PREPARED_ROUND2(6); SHA256_PREPARED_ROUND2(7);
-    SHA256_PREPARED_ROUND2(8); SHA256_PREPARED_ROUND2(9); SHA256_PREPARED_ROUND2(10); SHA256_PREPARED_ROUND2(11);
-    SHA256_PREPARED_ROUND2(12); SHA256_PREPARED_ROUND2(13); SHA256_PREPARED_ROUND2(14); SHA256_PREPARED_ROUND2(15);
-    SHA256_PREPARED_ROUND2(16); SHA256_PREPARED_ROUND2(17); SHA256_PREPARED_ROUND2(18); SHA256_PREPARED_ROUND2(19);
-    SHA256_PREPARED_ROUND2(20); SHA256_PREPARED_ROUND2(21); SHA256_PREPARED_ROUND2(22); SHA256_PREPARED_ROUND2(23);
-    SHA256_PREPARED_ROUND2(24); SHA256_PREPARED_ROUND2(25); SHA256_PREPARED_ROUND2(26); SHA256_PREPARED_ROUND2(27);
-    SHA256_PREPARED_ROUND2(28); SHA256_PREPARED_ROUND2(29); SHA256_PREPARED_ROUND2(30); SHA256_PREPARED_ROUND2(31);
-    SHA256_PREPARED_ROUND2(32); SHA256_PREPARED_ROUND2(33); SHA256_PREPARED_ROUND2(34); SHA256_PREPARED_ROUND2(35);
-    SHA256_PREPARED_ROUND2(36); SHA256_PREPARED_ROUND2(37); SHA256_PREPARED_ROUND2(38); SHA256_PREPARED_ROUND2(39);
-    SHA256_PREPARED_ROUND2(40); SHA256_PREPARED_ROUND2(41); SHA256_PREPARED_ROUND2(42); SHA256_PREPARED_ROUND2(43);
-    SHA256_PREPARED_ROUND2(44); SHA256_PREPARED_ROUND2(45); SHA256_PREPARED_ROUND2(46); SHA256_PREPARED_ROUND2(47);
-    SHA256_PREPARED_ROUND2(48); SHA256_PREPARED_ROUND2(49); SHA256_PREPARED_ROUND2(50); SHA256_PREPARED_ROUND2(51);
-    SHA256_PREPARED_ROUND2(52); SHA256_PREPARED_ROUND2(53); SHA256_PREPARED_ROUND2(54); SHA256_PREPARED_ROUND2(55);
-    SHA256_PREPARED_ROUND2(56); SHA256_PREPARED_ROUND2(57); SHA256_PREPARED_ROUND2(58); SHA256_PREPARED_ROUND2(59);
-    SHA256_PREPARED_ROUND2(60); SHA256_PREPARED_ROUND2(61); SHA256_PREPARED_ROUND2(62); SHA256_PREPARED_ROUND2(63);
-
-#undef SHA256_PREPARED_ROUND2
-
-    w0[0] = work.midstate[0] + a0;
-    w0[1] = work.midstate[1] + b0;
-    w0[2] = work.midstate[2] + c0;
-    w0[3] = work.midstate[3] + d0;
-    w0[4] = work.midstate[4] + e0;
-    w0[5] = work.midstate[5] + f0;
-    w0[6] = work.midstate[6] + g0;
-    w0[7] = work.midstate[7] + h0;
-    w0[8] = 0x80000000u;
-    w0[9] = 0u;
-    w0[10] = 0u;
-    w0[11] = 0u;
-    w0[12] = 0u;
-    w0[13] = 0u;
-    w0[14] = 0u;
-    w0[15] = 0x00000100u;
-
-    w1[0] = work.midstate[0] + a1;
-    w1[1] = work.midstate[1] + b1;
-    w1[2] = work.midstate[2] + c1;
-    w1[3] = work.midstate[3] + d1;
-    w1[4] = work.midstate[4] + e1;
-    w1[5] = work.midstate[5] + f1;
-    w1[6] = work.midstate[6] + g1;
-    w1[7] = work.midstate[7] + h1;
-    w1[8] = 0x80000000u;
-    w1[9] = 0u;
-    w1[10] = 0u;
-    w1[11] = 0u;
-    w1[12] = 0u;
-    w1[13] = 0u;
-    w1[14] = 0u;
-    w1[15] = 0x00000100u;
-}
-
-BITSY_ALWAYS_INLINE HighCompareWords2 compressScheduleHighWords2(uint32_t w0[16], uint32_t w1[16]) {
-    uint32_t a0 = kInit[0];
-    uint32_t b0 = kInit[1];
-    uint32_t c0 = kInit[2];
-    uint32_t d0 = kInit[3];
-    uint32_t e0 = kInit[4];
-    uint32_t f0 = kInit[5];
-    uint32_t g0 = kInit[6];
-    uint32_t h0 = kInit[7];
-
-    uint32_t a1 = a0;
-    uint32_t b1 = b0;
-    uint32_t c1 = c0;
-    uint32_t d1 = d0;
-    uint32_t e1 = e0;
-    uint32_t f1 = f0;
-    uint32_t g1 = g0;
-    uint32_t h1 = h0;
-
-#define SHA256_HIGH_ROUND2(i) do { \
-        const uint32_t wi0 = ((i) < 16) ? w0[(i)] : \
-            (w0[(i) & 15] += smallSigma0(w0[((i) + 1) & 15]) + w0[((i) + 9) & 15] + smallSigma1(w0[((i) + 14) & 15])); \
-        const uint32_t t10 = h0 + bigSigma1(e0) + ch(e0, f0, g0) + kRound[(i)] + wi0; \
-        const uint32_t t20 = bigSigma0(a0) + maj(a0, b0, c0); \
-        h0 = g0; \
-        g0 = f0; \
-        f0 = e0; \
-        e0 = d0 + t10; \
-        d0 = c0; \
-        c0 = b0; \
-        b0 = a0; \
-        a0 = t10 + t20; \
-        const uint32_t wi1 = ((i) < 16) ? w1[(i)] : \
-            (w1[(i) & 15] += smallSigma0(w1[((i) + 1) & 15]) + w1[((i) + 9) & 15] + smallSigma1(w1[((i) + 14) & 15])); \
-        const uint32_t t11 = h1 + bigSigma1(e1) + ch(e1, f1, g1) + kRound[(i)] + wi1; \
-        const uint32_t t21 = bigSigma0(a1) + maj(a1, b1, c1); \
-        h1 = g1; \
-        g1 = f1; \
-        f1 = e1; \
-        e1 = d1 + t11; \
-        d1 = c1; \
-        c1 = b1; \
-        b1 = a1; \
-        a1 = t11 + t21; \
-    } while (0)
-
-    SHA256_HIGH_ROUND2(0); SHA256_HIGH_ROUND2(1); SHA256_HIGH_ROUND2(2); SHA256_HIGH_ROUND2(3);
-    SHA256_HIGH_ROUND2(4); SHA256_HIGH_ROUND2(5); SHA256_HIGH_ROUND2(6); SHA256_HIGH_ROUND2(7);
-    SHA256_HIGH_ROUND2(8); SHA256_HIGH_ROUND2(9); SHA256_HIGH_ROUND2(10); SHA256_HIGH_ROUND2(11);
-    SHA256_HIGH_ROUND2(12); SHA256_HIGH_ROUND2(13); SHA256_HIGH_ROUND2(14); SHA256_HIGH_ROUND2(15);
-    SHA256_HIGH_ROUND2(16); SHA256_HIGH_ROUND2(17); SHA256_HIGH_ROUND2(18); SHA256_HIGH_ROUND2(19);
-    SHA256_HIGH_ROUND2(20); SHA256_HIGH_ROUND2(21); SHA256_HIGH_ROUND2(22); SHA256_HIGH_ROUND2(23);
-    SHA256_HIGH_ROUND2(24); SHA256_HIGH_ROUND2(25); SHA256_HIGH_ROUND2(26); SHA256_HIGH_ROUND2(27);
-    SHA256_HIGH_ROUND2(28); SHA256_HIGH_ROUND2(29); SHA256_HIGH_ROUND2(30); SHA256_HIGH_ROUND2(31);
-    SHA256_HIGH_ROUND2(32); SHA256_HIGH_ROUND2(33); SHA256_HIGH_ROUND2(34); SHA256_HIGH_ROUND2(35);
-    SHA256_HIGH_ROUND2(36); SHA256_HIGH_ROUND2(37); SHA256_HIGH_ROUND2(38); SHA256_HIGH_ROUND2(39);
-    SHA256_HIGH_ROUND2(40); SHA256_HIGH_ROUND2(41); SHA256_HIGH_ROUND2(42); SHA256_HIGH_ROUND2(43);
-    SHA256_HIGH_ROUND2(44); SHA256_HIGH_ROUND2(45); SHA256_HIGH_ROUND2(46); SHA256_HIGH_ROUND2(47);
-    SHA256_HIGH_ROUND2(48); SHA256_HIGH_ROUND2(49); SHA256_HIGH_ROUND2(50); SHA256_HIGH_ROUND2(51);
-    SHA256_HIGH_ROUND2(52); SHA256_HIGH_ROUND2(53); SHA256_HIGH_ROUND2(54); SHA256_HIGH_ROUND2(55);
-    SHA256_HIGH_ROUND2(56); SHA256_HIGH_ROUND2(57); SHA256_HIGH_ROUND2(58); SHA256_HIGH_ROUND2(59);
-    SHA256_HIGH_ROUND2(60); SHA256_HIGH_ROUND2(61); SHA256_HIGH_ROUND2(62); SHA256_HIGH_ROUND2(63);
-
-#undef SHA256_HIGH_ROUND2
-
-    return {bswap32(kInit[7] + h0), bswap32(kInit[7] + h1)};
-}
-
-BITSY_ALWAYS_INLINE HighCompareWords2 doubleHeaderHighCompareWords2WithPreparedNonce(
-    const HeaderWork& work,
-    uint32_t nonce0,
-    uint32_t nonce1
-) {
-    uint32_t w0[16];
-    uint32_t w1[16];
-    finalChunkWordsWithPreparedNonce2(work, nonce0, nonce1, w0, w1);
-    return compressScheduleHighWords2(w0, w1);
-}
-
-#endif
 
 BITSY_ALWAYS_INLINE void doubleHeaderStateWithPreparedNonce(
     const HeaderWork& work,
@@ -1653,35 +1419,6 @@ void updateBestDifficulty(Stats& stats, long double difficulty) {
     if (difficulty > stats.bestDifficulty) stats.bestDifficulty = difficulty;
 }
 
-#if !BITSY_USE_NEON
-void submitScalarCandidate(
-    const std::shared_ptr<const MiningJob>& job,
-    uint32_t nonce,
-    MinerState& minerState,
-    Stats& stats
-) {
-    uint32_t finalState[8];
-    sha256::doubleHeaderStateWithPreparedNonce(job->headerWork, nonce, finalState);
-    if (!sha256::stateMeetsTargetWords(finalState, job->poolTargetWords)) return;
-
-    const Hash32 hash = sha256::hashFromState(finalState);
-    const long double diff = difficultyFromHash(hash);
-    updateBestDifficulty(stats, diff);
-
-    Submission submission;
-    submission.jobId = job->jobId;
-    submission.extraNonce2 = job->extraNonce2Hex;
-    submission.timestamp = job->timestamp;
-    submission.nonce = nonce;
-    submission.difficulty = diff;
-    if (hashMeetsTarget(hash, job->blockTarget)) submission.flags |= 0x04u;
-    if (hash[28] == 0 && hash[29] == 0 && hash[30] == 0 && hash[31] == 0) submission.flags |= 0x02u;
-
-    stats.sharesFound.fetch_add(1, std::memory_order_relaxed);
-    minerState.pushSubmission(std::move(submission));
-}
-#endif
-
 void BITSY_HOT minerWorker(
     int workerIndex,
     int threadCount,
@@ -1759,23 +1496,6 @@ void BITSY_HOT minerWorker(
 
             nonce += static_cast<uint32_t>(threadCount * 4);
 #else
-#if BITSY_SCALAR_INTERLEAVE2
-            const uint32_t nonce1 = nonce + static_cast<uint32_t>(threadCount);
-            const sha256::HighCompareWords2 highWords =
-                sha256::doubleHeaderHighCompareWords2WithPreparedNonce(job->headerWork, nonce, nonce1);
-            localHashes += 2;
-            workerHashes += 2;
-            batch += 2;
-
-            if (highWords.first <= job->poolTargetWords[7]) {
-                submitScalarCandidate(job, nonce, minerState, stats);
-            }
-            if (highWords.second <= job->poolTargetWords[7]) {
-                submitScalarCandidate(job, nonce1, minerState, stats);
-            }
-
-            nonce += static_cast<uint32_t>(threadCount * 2);
-#else
             const uint32_t highWord =
                 sha256::doubleHeaderHighCompareWordWithPreparedNonce(job->headerWork, nonce);
             ++localHashes;
@@ -1783,11 +1503,31 @@ void BITSY_HOT minerWorker(
             ++batch;
 
             if (highWord <= job->poolTargetWords[7]) {
-                submitScalarCandidate(job, nonce, minerState, stats);
+                uint32_t finalState[8];
+                sha256::doubleHeaderStateWithPreparedNonce(job->headerWork, nonce, finalState);
+                if (!sha256::stateMeetsTargetWords(finalState, job->poolTargetWords)) {
+                    nonce += static_cast<uint32_t>(threadCount);
+                    continue;
+                }
+
+                const Hash32 hash = sha256::hashFromState(finalState);
+                const long double diff = difficultyFromHash(hash);
+                updateBestDifficulty(stats, diff);
+
+                Submission submission;
+                submission.jobId = job->jobId;
+                submission.extraNonce2 = job->extraNonce2Hex;
+                submission.timestamp = job->timestamp;
+                submission.nonce = nonce;
+                submission.difficulty = diff;
+                if (hashMeetsTarget(hash, job->blockTarget)) submission.flags |= 0x04u;
+                if (hash[28] == 0 && hash[29] == 0 && hash[30] == 0 && hash[31] == 0) submission.flags |= 0x02u;
+
+                stats.sharesFound.fetch_add(1, std::memory_order_relaxed);
+                minerState.pushSubmission(std::move(submission));
             }
 
             nonce += static_cast<uint32_t>(threadCount);
-#endif
 #endif
         }
 
@@ -2112,15 +1852,6 @@ bool runSelfTest() {
         std::cerr << "self-test failed: high-word fast path\n";
         return false;
     }
-#if !BITSY_USE_NEON && BITSY_SCALAR_INTERLEAVE2
-    const sha256::HighCompareWords2 highWords2 =
-        sha256::doubleHeaderHighCompareWords2WithPreparedNonce(headerWork, 0x7c2bac1du, 0x7c2bac1eu);
-    if (highWords2.first != sha256::doubleHeaderHighCompareWordWithPreparedNonce(headerWork, 0x7c2bac1du) ||
-        highWords2.second != sha256::doubleHeaderHighCompareWordWithPreparedNonce(headerWork, 0x7c2bac1eu)) {
-        std::cerr << "self-test failed: scalar2 high-word fast path\n";
-        return false;
-    }
-#endif
     const Hash32 diff1Target = compactBitsToTarget(kDiff1Bits);
     const auto diff1TargetWords = targetCompareWords(diff1Target);
     if (hashMeetsTarget(minedDigest, diff1Target) !=
