@@ -1,8 +1,19 @@
 CXX ?= g++
+UNAME_S := $(shell uname -s 2>/dev/null || printf unknown)
+UNAME_M := $(shell uname -m 2>/dev/null || printf unknown)
+NATIVE_ARM_LINUX := $(if $(filter Linux,$(UNAME_S)),$(if $(filter arm% aarch64,$(UNAME_M)),1,))
+
+ifeq ($(NATIVE_ARM_LINUX),1)
+ODROID_CXX ?= $(CXX)
+ODROID_STRIP ?= $(shell command -v strip 2>/dev/null || true)
+ORANGEPI_CXX ?= $(CXX)
+ORANGEPI_STRIP ?= $(shell command -v strip 2>/dev/null || true)
+else
 ODROID_CXX ?= $(shell command -v arm-unknown-linux-gnueabihf-g++ 2>/dev/null || command -v arm-linux-gnueabihf-g++ 2>/dev/null || command -v armv7-unknown-linux-gnueabihf-g++ 2>/dev/null || printf arm-linux-gnueabihf-g++)
 ODROID_STRIP ?= $(shell command -v arm-unknown-linux-gnueabihf-strip 2>/dev/null || command -v arm-linux-gnueabihf-strip 2>/dev/null || command -v armv7-unknown-linux-gnueabihf-strip 2>/dev/null || true)
 ORANGEPI_CXX ?= $(shell command -v arm-unknown-linux-gnueabihf-g++ 2>/dev/null || command -v arm-linux-gnueabihf-g++ 2>/dev/null || command -v armv7-unknown-linux-gnueabihf-g++ 2>/dev/null || printf arm-linux-gnueabihf-g++)
 ORANGEPI_STRIP ?= $(shell command -v arm-unknown-linux-gnueabihf-strip 2>/dev/null || command -v arm-linux-gnueabihf-strip 2>/dev/null || command -v armv7-unknown-linux-gnueabihf-strip 2>/dev/null || true)
+endif
 
 BUILD_DIR := build
 SRC := src/bitsyminer_odroid.cpp

@@ -22,7 +22,7 @@ For Orange Pi PC / H3:
 ```sh
 sudo apt update
 sudo apt install -y build-essential make
-make -C odroid orangepi-local
+make -C odroid orangepi
 ```
 
 The binaries are written to:
@@ -54,6 +54,12 @@ make -C odroid orangepi ORANGEPI_CXX=/path/to/arm-linux-gnueabihf-g++
 ```
 
 On macOS, compatible cross compilers are commonly named `arm-unknown-linux-gnueabihf-g++` or `armv7-unknown-linux-gnueabihf-g++`. The Makefile auto-detects these compiler names when they are on `PATH`.
+
+On an ARM Linux board, `make odroid` and `make orangepi` use the native C++ compiler. If the compiler reports that it cannot execute `as`, install the missing assembler tools with:
+
+```sh
+sudo apt install -y build-essential binutils
+```
 
 ## NEON builds
 
