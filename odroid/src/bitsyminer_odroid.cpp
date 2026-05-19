@@ -50,6 +50,26 @@
 #define BITSY_USE_NEON 0
 #endif
 
+#if defined(BITSY_ENABLE_POOLER_ARM_SHA) && BITSY_ENABLE_POOLER_ARM_SHA && defined(__arm__) && defined(__APCS_32__)
+#define BITSY_USE_POOLER_ARM_SHA 1
+extern "C" void bitsy_pooler_sha256d_ms(
+    uint32_t* hash,
+    uint32_t* data,
+    const uint32_t* midstate,
+    const uint32_t* prehash
+);
+#if BITSY_USE_NEON
+extern "C" void bitsy_pooler_sha256d_ms_4way(
+    uint32_t* hash,
+    uint32_t* data,
+    const uint32_t* midstate,
+    const uint32_t* prehash
+);
+#endif
+#else
+#define BITSY_USE_POOLER_ARM_SHA 0
+#endif
+
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
 #endif
@@ -107,7 +127,11 @@ using Hash32 = std::array<uint8_t, 32>;
 using Header80 = std::array<uint8_t, 80>;
 
 const char* shaBackendName() {
-#if BITSY_USE_NEON
+#if BITSY_USE_POOLER_ARM_SHA && BITSY_USE_NEON
+    return "pooler-arm-neon4";
+#elif BITSY_USE_POOLER_ARM_SHA
+    return "pooler-arm";
+#elif BITSY_USE_NEON
     return "neon4";
 #else
     return "scalar";
@@ -380,6 +404,19 @@ struct HeaderWork {
     std::array<uint32_t, 3> tailWords{};
 };
 
+#if BITSY_USE_POOLER_ARM_SHA
+struct PoolerHeaderWork {
+    alignas(128) std::array<uint32_t, 64> data{};
+    alignas(32) std::array<uint32_t, 8> midstate{};
+    alignas(32) std::array<uint32_t, 8> prehash{};
+#if BITSY_USE_NEON
+    alignas(128) std::array<uint32_t, 4 * 64> data4{};
+    alignas(32) std::array<uint32_t, 4 * 8> midstate4{};
+    alignas(32) std::array<uint32_t, 4 * 8> prehash4{};
+#endif
+};
+#endif
+
 BITSY_ALWAYS_INLINE void roundStep(
     uint32_t& a,
     uint32_t& b,
@@ -403,6 +440,27 @@ BITSY_ALWAYS_INLINE void roundStep(
     b = a;
     a = t1 + t2;
 }
+
+#if BITSY_USE_POOLER_ARM_SHA
+void poolerPreextend(uint32_t w[64]) {
+    w[16] = smallSigma1(w[14]) + w[9] + smallSigma0(w[1]) + w[0];
+    w[17] = smallSigma1(w[15]) + w[10] + smallSigma0(w[2]) + w[1];
+    w[18] = smallSigma1(w[16]) + w[11] + w[2];
+    w[19] = smallSigma1(w[17]) + w[12] + smallSigma0(w[4]);
+    w[20] = w[13] + smallSigma0(w[5]) + w[4];
+    w[21] = w[14] + smallSigma0(w[6]) + w[5];
+    w[22] = w[15] + smallSigma0(w[7]) + w[6];
+    w[23] = w[16] + smallSigma0(w[8]) + w[7];
+    w[24] = w[17] + smallSigma0(w[9]) + w[8];
+    w[25] = smallSigma0(w[10]) + w[9];
+    w[26] = smallSigma0(w[11]) + w[10];
+    w[27] = smallSigma0(w[12]) + w[11];
+    w[28] = smallSigma0(w[13]) + w[12];
+    w[29] = smallSigma0(w[14]) + w[13];
+    w[30] = smallSigma0(w[15]) + w[14];
+    w[31] = smallSigma0(w[16]) + w[15];
+}
+#endif
 
 HeaderWork prepareHeaderWork(
     const std::array<uint32_t, 8>& firstMidstate,
@@ -428,6 +486,97 @@ HeaderWork prepareHeaderWork(
     work.secondStateAfterRound2 = {a, b, c, d, e, f, g, h};
     return work;
 }
+
+#if BITSY_USE_POOLER_ARM_SHA
+PoolerHeaderWork preparePoolerHeaderWork(
+    const std::array<uint32_t, 8>& firstMidstate,
+    const std::array<uint32_t, 3>& tailWords
+) {
+    PoolerHeaderWork work;
+    work.midstate = firstMidstate;
+    work.prehash = firstMidstate;
+    work.data[0] = tailWords[0];
+    work.data[1] = tailWords[1];
+    work.data[2] = tailWords[2];
+    work.data[3] = 0u;
+    work.data[4] = 0x80000000u;
+    work.data[15] = 0x00000280u;
+    poolerPreextend(work.data.data());
+
+    uint32_t a = work.prehash[0];
+    uint32_t b = work.prehash[1];
+    uint32_t c = work.prehash[2];
+    uint32_t d = work.prehash[3];
+    uint32_t e = work.prehash[4];
+    uint32_t f = work.prehash[5];
+    uint32_t g = work.prehash[6];
+    uint32_t h = work.prehash[7];
+
+    roundStep(a, b, c, d, e, f, g, h, work.data[0], kRound[0]);
+    roundStep(a, b, c, d, e, f, g, h, work.data[1], kRound[1]);
+    roundStep(a, b, c, d, e, f, g, h, work.data[2], kRound[2]);
+    work.prehash = {a, b, c, d, e, f, g, h};
+
+#if BITSY_USE_NEON
+    for (size_t word = 0; word < 32; ++word) {
+        for (size_t lane = 0; lane < 4; ++lane) {
+            work.data4[word * 4 + lane] = work.data[word];
+        }
+    }
+    for (size_t word = 0; word < 8; ++word) {
+        for (size_t lane = 0; lane < 4; ++lane) {
+            work.midstate4[word * 4 + lane] = work.midstate[word];
+            work.prehash4[word * 4 + lane] = work.prehash[word];
+        }
+    }
+#endif
+
+    return work;
+}
+
+BITSY_ALWAYS_INLINE uint32_t poolerDoubleHeaderHighCompareWordWithPreparedNonce(
+    PoolerHeaderWork& work,
+    uint32_t nonce,
+    uint32_t hash[8]
+) {
+    work.data[3] = bswap32(nonce);
+    bitsy_pooler_sha256d_ms(hash, work.data.data(), work.midstate.data(), work.prehash.data());
+    return bswap32(hash[7]);
+}
+
+#if BITSY_USE_NEON
+BITSY_ALWAYS_INLINE void poolerDoubleHeaderHighWords4WithNonce(
+    PoolerHeaderWork& work,
+    uint32_t nonce,
+    uint32_t stride,
+    uint32_t hash[4 * 8]
+) {
+    work.data4[4 * 3 + 0] = bswap32(nonce);
+    work.data4[4 * 3 + 1] = bswap32(nonce + stride);
+    work.data4[4 * 3 + 2] = bswap32(nonce + stride * 2u);
+    work.data4[4 * 3 + 3] = bswap32(nonce + stride * 3u);
+    bitsy_pooler_sha256d_ms_4way(
+        hash,
+        work.data4.data(),
+        work.midstate4.data(),
+        work.prehash4.data()
+    );
+}
+
+BITSY_ALWAYS_INLINE uint8_t poolerCandidateLaneMask4(
+    const uint32_t hash[4 * 8],
+    const std::array<uint32_t, 8>& targetWords
+) {
+    uint8_t mask = 0;
+    for (int lane = 0; lane < 4; ++lane) {
+        if (bswap32(hash[4 * 7 + lane]) <= targetWords[7]) {
+            mask |= static_cast<uint8_t>(1u << lane);
+        }
+    }
+    return mask;
+}
+#endif
+#endif
 
 BITSY_ALWAYS_INLINE void finalChunkWordsWithPreparedNonce(
     const HeaderWork& work,
@@ -551,12 +700,25 @@ BITSY_ALWAYS_INLINE uint32_t compressScheduleHighWord(uint32_t w[16]) {
     SHA256_HIGH_ROUND(44); SHA256_HIGH_ROUND(45); SHA256_HIGH_ROUND(46); SHA256_HIGH_ROUND(47);
     SHA256_HIGH_ROUND(48); SHA256_HIGH_ROUND(49); SHA256_HIGH_ROUND(50); SHA256_HIGH_ROUND(51);
     SHA256_HIGH_ROUND(52); SHA256_HIGH_ROUND(53); SHA256_HIGH_ROUND(54); SHA256_HIGH_ROUND(55);
-    SHA256_HIGH_ROUND(56); SHA256_HIGH_ROUND(57); SHA256_HIGH_ROUND(58); SHA256_HIGH_ROUND(59);
-    SHA256_HIGH_ROUND(60); SHA256_HIGH_ROUND(61); SHA256_HIGH_ROUND(62); SHA256_HIGH_ROUND(63);
+    SHA256_HIGH_ROUND(56);
 
 #undef SHA256_HIGH_ROUND
 
-    return kInit[7] + h;
+#define SHA256_HIGH_WORD(i) (((i) < 16) ? w[(i)] : \
+        (w[(i) & 15] += smallSigma0(w[((i) + 1) & 15]) + w[((i) + 9) & 15] + smallSigma1(w[((i) + 14) & 15])))
+
+    const uint32_t w57 = SHA256_HIGH_WORD(57);
+    const uint32_t e57 = d + h + bigSigma1(e) + ch(e, f, g) + kRound[57] + w57;
+    const uint32_t w58 = SHA256_HIGH_WORD(58);
+    const uint32_t e58 = c + g + bigSigma1(e57) + ch(e57, e, f) + kRound[58] + w58;
+    const uint32_t w59 = SHA256_HIGH_WORD(59);
+    const uint32_t e59 = b + f + bigSigma1(e58) + ch(e58, e57, e) + kRound[59] + w59;
+    const uint32_t w60 = SHA256_HIGH_WORD(60);
+    const uint32_t e60 = a + e + bigSigma1(e59) + ch(e59, e58, e57) + kRound[60] + w60;
+
+#undef SHA256_HIGH_WORD
+
+    return kInit[7] + e60;
 }
 
 BITSY_ALWAYS_INLINE uint32_t doubleHeaderHighCompareWordWithPreparedNonce(
@@ -728,6 +890,69 @@ BITSY_ALWAYS_INLINE void compressWords4(uint32x4_t state[8], const uint32x4_t fi
     state[7] = addVec(state[7], h);
 }
 
+BITSY_ALWAYS_INLINE uint32x4_t compressWords4HighWord(const uint32x4_t first16[16]) {
+    uint32x4_t w[16];
+    for (size_t i = 0; i < 16; ++i) w[i] = first16[i];
+
+    uint32x4_t a = vdupq_n_u32(kInit[0]);
+    uint32x4_t b = vdupq_n_u32(kInit[1]);
+    uint32x4_t c = vdupq_n_u32(kInit[2]);
+    uint32x4_t d = vdupq_n_u32(kInit[3]);
+    uint32x4_t e = vdupq_n_u32(kInit[4]);
+    uint32x4_t f = vdupq_n_u32(kInit[5]);
+    uint32x4_t g = vdupq_n_u32(kInit[6]);
+    uint32x4_t h = vdupq_n_u32(kInit[7]);
+
+#define SHA256_HIGH_ROUND4(i) do { \
+        const uint32x4_t wi = ((i) < 16) ? w[(i)] : \
+            (w[(i) & 15] = addVec(w[(i) & 15], smallSigma0Vec(w[((i) + 1) & 15]), w[((i) + 9) & 15], smallSigma1Vec(w[((i) + 14) & 15]))); \
+        const uint32x4_t t1 = addVec(h, bigSigma1Vec(e), chVec(e, f, g), vdupq_n_u32(kRound[(i)]), wi); \
+        const uint32x4_t t2 = addVec(bigSigma0Vec(a), majVec(a, b, c)); \
+        h = g; \
+        g = f; \
+        f = e; \
+        e = addVec(d, t1); \
+        d = c; \
+        c = b; \
+        b = a; \
+        a = addVec(t1, t2); \
+    } while (0)
+
+    SHA256_HIGH_ROUND4(0); SHA256_HIGH_ROUND4(1); SHA256_HIGH_ROUND4(2); SHA256_HIGH_ROUND4(3);
+    SHA256_HIGH_ROUND4(4); SHA256_HIGH_ROUND4(5); SHA256_HIGH_ROUND4(6); SHA256_HIGH_ROUND4(7);
+    SHA256_HIGH_ROUND4(8); SHA256_HIGH_ROUND4(9); SHA256_HIGH_ROUND4(10); SHA256_HIGH_ROUND4(11);
+    SHA256_HIGH_ROUND4(12); SHA256_HIGH_ROUND4(13); SHA256_HIGH_ROUND4(14); SHA256_HIGH_ROUND4(15);
+    SHA256_HIGH_ROUND4(16); SHA256_HIGH_ROUND4(17); SHA256_HIGH_ROUND4(18); SHA256_HIGH_ROUND4(19);
+    SHA256_HIGH_ROUND4(20); SHA256_HIGH_ROUND4(21); SHA256_HIGH_ROUND4(22); SHA256_HIGH_ROUND4(23);
+    SHA256_HIGH_ROUND4(24); SHA256_HIGH_ROUND4(25); SHA256_HIGH_ROUND4(26); SHA256_HIGH_ROUND4(27);
+    SHA256_HIGH_ROUND4(28); SHA256_HIGH_ROUND4(29); SHA256_HIGH_ROUND4(30); SHA256_HIGH_ROUND4(31);
+    SHA256_HIGH_ROUND4(32); SHA256_HIGH_ROUND4(33); SHA256_HIGH_ROUND4(34); SHA256_HIGH_ROUND4(35);
+    SHA256_HIGH_ROUND4(36); SHA256_HIGH_ROUND4(37); SHA256_HIGH_ROUND4(38); SHA256_HIGH_ROUND4(39);
+    SHA256_HIGH_ROUND4(40); SHA256_HIGH_ROUND4(41); SHA256_HIGH_ROUND4(42); SHA256_HIGH_ROUND4(43);
+    SHA256_HIGH_ROUND4(44); SHA256_HIGH_ROUND4(45); SHA256_HIGH_ROUND4(46); SHA256_HIGH_ROUND4(47);
+    SHA256_HIGH_ROUND4(48); SHA256_HIGH_ROUND4(49); SHA256_HIGH_ROUND4(50); SHA256_HIGH_ROUND4(51);
+    SHA256_HIGH_ROUND4(52); SHA256_HIGH_ROUND4(53); SHA256_HIGH_ROUND4(54); SHA256_HIGH_ROUND4(55);
+    SHA256_HIGH_ROUND4(56);
+
+#undef SHA256_HIGH_ROUND4
+
+#define SHA256_HIGH_WORD4(i) (((i) < 16) ? w[(i)] : \
+        (w[(i) & 15] = addVec(w[(i) & 15], smallSigma0Vec(w[((i) + 1) & 15]), w[((i) + 9) & 15], smallSigma1Vec(w[((i) + 14) & 15]))))
+
+    const uint32x4_t w57 = SHA256_HIGH_WORD4(57);
+    const uint32x4_t e57 = addVec(addVec(d, h, bigSigma1Vec(e), chVec(e, f, g), vdupq_n_u32(kRound[57])), w57);
+    const uint32x4_t w58 = SHA256_HIGH_WORD4(58);
+    const uint32x4_t e58 = addVec(addVec(c, g, bigSigma1Vec(e57), chVec(e57, e, f), vdupq_n_u32(kRound[58])), w58);
+    const uint32x4_t w59 = SHA256_HIGH_WORD4(59);
+    const uint32x4_t e59 = addVec(addVec(b, f, bigSigma1Vec(e58), chVec(e58, e57, e), vdupq_n_u32(kRound[59])), w59);
+    const uint32x4_t w60 = SHA256_HIGH_WORD4(60);
+    const uint32x4_t e60 = addVec(addVec(a, e, bigSigma1Vec(e59), chVec(e59, e58, e57), vdupq_n_u32(kRound[60])), w60);
+
+#undef SHA256_HIGH_WORD4
+
+    return addVec(vdupq_n_u32(kInit[7]), e60);
+}
+
 BITSY_ALWAYS_INLINE void doubleHeaderState4WithNonce(
     const std::array<uint32_t, 8>& firstMidstate,
     const std::array<uint32_t, 3>& tailWords,
@@ -771,12 +996,52 @@ BITSY_ALWAYS_INLINE void doubleHeaderState4WithNonce(
     compressWords4(finalState, finalChunk);
 }
 
-BITSY_ALWAYS_INLINE uint8_t candidateLaneMask4(
-    const uint32x4_t finalState[8],
+BITSY_ALWAYS_INLINE uint32x4_t doubleHeaderHighWords4WithNonce(
+    const std::array<uint32_t, 8>& firstMidstate,
+    const std::array<uint32_t, 3>& tailWords,
+    uint32_t nonce,
+    uint32_t stride
+) {
+    const uint32_t nonceLanes[4] = {
+        nonce,
+        nonce + stride,
+        nonce + stride * 2u,
+        nonce + stride * 3u
+    };
+
+    uint32x4_t state[8];
+    for (size_t i = 0; i < 8; ++i) state[i] = vdupq_n_u32(firstMidstate[i]);
+
+    uint32x4_t secondChunk[16] = {
+        vdupq_n_u32(tailWords[0]),
+        vdupq_n_u32(tailWords[1]),
+        vdupq_n_u32(tailWords[2]),
+        bswapVec(vld1q_u32(nonceLanes)),
+        vdupq_n_u32(0x80000000u),
+        vdupq_n_u32(0u), vdupq_n_u32(0u), vdupq_n_u32(0u),
+        vdupq_n_u32(0u), vdupq_n_u32(0u), vdupq_n_u32(0u), vdupq_n_u32(0u),
+        vdupq_n_u32(0u), vdupq_n_u32(0u), vdupq_n_u32(0u),
+        vdupq_n_u32(0x00000280u)
+    };
+    compressWords4(state, secondChunk);
+
+    uint32x4_t finalChunk[16] = {
+        state[0], state[1], state[2], state[3],
+        state[4], state[5], state[6], state[7],
+        vdupq_n_u32(0x80000000u),
+        vdupq_n_u32(0u), vdupq_n_u32(0u), vdupq_n_u32(0u),
+        vdupq_n_u32(0u), vdupq_n_u32(0u), vdupq_n_u32(0u),
+        vdupq_n_u32(0x00000100u)
+    };
+    return compressWords4HighWord(finalChunk);
+}
+
+BITSY_ALWAYS_INLINE uint8_t candidateLaneMask4FromHighWord(
+    uint32x4_t highWord,
     const std::array<uint32_t, 8>& targetWords
 ) {
     uint32_t highWords[4];
-    vst1q_u32(highWords, bswapVec(finalState[7]));
+    vst1q_u32(highWords, bswapVec(highWord));
 
     uint8_t mask = 0;
     for (int lane = 0; lane < 4; ++lane) {
@@ -1041,6 +1306,9 @@ struct MiningJob {
     std::array<uint32_t, 8> midstate{};
     std::array<uint32_t, 3> tailWords{};
     sha256::HeaderWork headerWork{};
+#if BITSY_USE_POOLER_ARM_SHA
+    sha256::PoolerHeaderWork poolerWork{};
+#endif
     Hash32 poolTarget{};
     std::array<uint32_t, 8> poolTargetWords{};
     Hash32 blockTarget{};
@@ -1236,6 +1504,9 @@ std::shared_ptr<MiningJob> buildMiningJob(
         readBe32(job->header.data() + 72)
     };
     job->headerWork = sha256::prepareHeaderWork(job->midstate, job->tailWords);
+#if BITSY_USE_POOLER_ARM_SHA
+    job->poolerWork = sha256::preparePoolerHeaderWork(job->midstate, job->tailWords);
+#endif
     job->poolTarget = poolTarget;
     job->poolTargetWords = targetCompareWords(poolTarget);
     job->blockTarget = compactBitsToTarget(bits);
@@ -1470,6 +1741,10 @@ void BITSY_HOT minerWorker(
     uint32_t nonce = static_cast<uint32_t>(workerIndex);
     uint64_t localHashes = 0;
     uint64_t workerHashes = 0;
+#if BITSY_USE_POOLER_ARM_SHA
+    sha256::PoolerHeaderWork poolerWork;
+    alignas(32) uint32_t poolerHash[4 * 8] = {};
+#endif
 
     while (running.load(std::memory_order_relaxed)) {
         auto job = minerState.currentJob();
@@ -1483,25 +1758,47 @@ void BITSY_HOT minerWorker(
         if (job->sequence != seenSequence) {
             seenSequence = job->sequence;
             nonce = job->nonceSeed + static_cast<uint32_t>(workerIndex);
+#if BITSY_USE_POOLER_ARM_SHA
+            poolerWork = job->poolerWork;
+#endif
         }
 
         for (int batch = 0; batch < 4096;) {
 #if BITSY_USE_NEON
-            uint32x4_t finalState4[8];
-            sha256::doubleHeaderState4WithNonce(
+#if BITSY_USE_POOLER_ARM_SHA
+            sha256::poolerDoubleHeaderHighWords4WithNonce(
+                poolerWork,
+                nonce,
+                static_cast<uint32_t>(threadCount),
+                poolerHash
+            );
+#else
+            const uint32x4_t highWord4 = sha256::doubleHeaderHighWords4WithNonce(
                 job->midstate,
                 job->tailWords,
                 nonce,
-                static_cast<uint32_t>(threadCount),
-                finalState4
+                static_cast<uint32_t>(threadCount)
             );
+#endif
 
             localHashes += 4;
             workerHashes += 4;
             batch += 4;
 
-            const uint8_t candidateMask = sha256::candidateLaneMask4(finalState4, job->poolTargetWords);
+#if BITSY_USE_POOLER_ARM_SHA
+            const uint8_t candidateMask = sha256::poolerCandidateLaneMask4(poolerHash, job->poolTargetWords);
+#else
+            const uint8_t candidateMask = sha256::candidateLaneMask4FromHighWord(highWord4, job->poolTargetWords);
+#endif
             if (candidateMask) {
+                uint32x4_t finalState4[8];
+                sha256::doubleHeaderState4WithNonce(
+                    job->midstate,
+                    job->tailWords,
+                    nonce,
+                    static_cast<uint32_t>(threadCount),
+                    finalState4
+                );
                 uint32_t stateWords[8][4];
                 sha256::storeState4(finalState4, stateWords);
 
@@ -1533,8 +1830,13 @@ void BITSY_HOT minerWorker(
 
             nonce += static_cast<uint32_t>(threadCount * 4);
 #else
+#if BITSY_USE_POOLER_ARM_SHA
+            const uint32_t highWord =
+                sha256::poolerDoubleHeaderHighCompareWordWithPreparedNonce(poolerWork, nonce, poolerHash);
+#else
             const uint32_t highWord =
                 sha256::doubleHeaderHighCompareWordWithPreparedNonce(job->headerWork, nonce);
+#endif
             ++localHashes;
             ++workerHashes;
             ++batch;
@@ -1889,6 +2191,33 @@ bool runSelfTest() {
         std::cerr << "self-test failed: high-word fast path\n";
         return false;
     }
+    for (uint32_t testNonce : {0u, 1u, 0x01020304u, 0x7c2bac1du, 0xffffffffu}) {
+        sha256::doubleHeaderStateWithPreparedNonce(headerWork, testNonce, finalState);
+        if (sha256::doubleHeaderHighCompareWordWithPreparedNonce(headerWork, testNonce) !=
+            bswap32(finalState[7])) {
+            std::cerr << "self-test failed: high-word fast path nonce=" << hex32(testNonce) << "\n";
+            return false;
+        }
+    }
+    sha256::doubleHeaderStateWithPreparedNonce(headerWork, 0x7c2bac1du, finalState);
+
+#if BITSY_USE_POOLER_ARM_SHA
+    auto poolerWork = sha256::preparePoolerHeaderWork(midstate, tailWords);
+    alignas(32) uint32_t poolerHash[4 * 8] = {};
+    for (uint32_t testNonce : {0u, 1u, 0x01020304u, 0x7c2bac1du, 0xffffffffu}) {
+        sha256::doubleHeaderStateWithPreparedNonce(headerWork, testNonce, finalState);
+        if (sha256::poolerDoubleHeaderHighCompareWordWithPreparedNonce(
+                poolerWork,
+                testNonce,
+                poolerHash
+            ) != bswap32(finalState[7])) {
+            std::cerr << "self-test failed: pooler ARM high path nonce=" << hex32(testNonce) << "\n";
+            return false;
+        }
+    }
+    sha256::doubleHeaderStateWithPreparedNonce(headerWork, 0x7c2bac1du, finalState);
+#endif
+
     const Hash32 diff1Target = compactBitsToTarget(kDiff1Bits);
     const auto diff1TargetWords = targetCompareWords(diff1Target);
     if (hashMeetsTarget(minedDigest, diff1Target) !=
@@ -1903,6 +2232,14 @@ bool runSelfTest() {
 
     uint32_t neonWords[8][4];
     sha256::storeState4(neonState, neonWords);
+    const uint32x4_t neonHighWord = sha256::doubleHeaderHighWords4WithNonce(
+        midstate,
+        tailWords,
+        0x7c2bac1du,
+        1
+    );
+    uint32_t neonHighWords[4];
+    vst1q_u32(neonHighWords, neonHighWord);
 
     for (int lane = 0; lane < 4; ++lane) {
         uint32_t scalarLane[8];
@@ -1918,14 +2255,34 @@ bool runSelfTest() {
                 return false;
             }
         }
+        if (neonHighWords[lane] != scalarLane[7]) {
+            std::cerr << "self-test failed: NEON high lane " << lane << "\n";
+            return false;
+        }
     }
 
-    const uint8_t neonCandidateMask = sha256::candidateLaneMask4(neonState, diff1TargetWords);
+    const uint8_t neonCandidateMask = sha256::candidateLaneMask4FromHighWord(neonHighWord, diff1TargetWords);
     if ((neonCandidateMask & 0x01u) == 0 ||
         !sha256::laneMeetsTargetWords(neonWords, 0, diff1TargetWords)) {
         std::cerr << "self-test failed: NEON target comparison\n";
         return false;
     }
+
+#if BITSY_USE_POOLER_ARM_SHA
+    poolerWork = sha256::preparePoolerHeaderWork(midstate, tailWords);
+    sha256::poolerDoubleHeaderHighWords4WithNonce(poolerWork, 0x7c2bac1du, 1, poolerHash);
+    for (int lane = 0; lane < 4; ++lane) {
+        if (poolerHash[4 * 7 + lane] != neonWords[7][lane]) {
+            std::cerr << "self-test failed: pooler ARM NEON high lane " << lane << "\n";
+            return false;
+        }
+    }
+    const uint8_t poolerNeonCandidateMask = sha256::poolerCandidateLaneMask4(poolerHash, diff1TargetWords);
+    if (poolerNeonCandidateMask != neonCandidateMask) {
+        std::cerr << "self-test failed: pooler ARM NEON target comparison\n";
+        return false;
+    }
+#endif
 #endif
 
     const Json parsed = JsonParser("{\"method\":\"mining.set_difficulty\",\"params\":[0.0014]}").parse();
@@ -1961,6 +2318,9 @@ int runBenchmark(const Options& opt) {
         readBe32(job->header.data() + 72)
     };
     job->headerWork = sha256::prepareHeaderWork(job->midstate, job->tailWords);
+#if BITSY_USE_POOLER_ARM_SHA
+    job->poolerWork = sha256::preparePoolerHeaderWork(job->midstate, job->tailWords);
+#endif
     job->poolTarget.fill(0x00);
     job->poolTargetWords = targetCompareWords(job->poolTarget);
     job->blockTarget = compactBitsToTarget(kDiff1Bits);

@@ -13,7 +13,7 @@ The original firmware in `BitsyMinerOpenSource/` is ESP32 Arduino code and uses 
 
 ```sh
 sudo apt update
-sudo apt install -y build-essential make
+sudo apt install -y build-essential g++ binutils make
 make -C odroid odroid-local
 ```
 
@@ -21,15 +21,19 @@ For Orange Pi PC / H3:
 
 ```sh
 sudo apt update
-sudo apt install -y build-essential make
-make -C odroid orangepi
+sudo apt install -y build-essential g++ binutils make
+make -C odroid orangepi-local
+make -C odroid orangepi-neon-local
 ```
+
+Benchmark both Orange Pi binaries. On Cortex-A7, the scalar build may be faster than the NEON build.
 
 The binaries are written to:
 
 ```sh
 odroid/build/bitsyminer-odroid-mc1-solo
 odroid/build/bitsyminer-orangepi-pc-h3
+odroid/build/bitsyminer-orangepi-pc-h3-neon
 ```
 
 ## Cross-compile from another Linux machine
@@ -44,6 +48,7 @@ For Orange Pi PC / H3:
 ```sh
 sudo apt install -y g++-arm-linux-gnueabihf make
 make -C odroid orangepi
+make -C odroid orangepi-neon
 ```
 
 Override the compiler if needed:
@@ -84,6 +89,31 @@ odroid/build/bitsyminer-odroid-mc1-solo-neon
 odroid/build/bitsyminer-orangepi-pc-h3-neon
 ```
 
+## Pooler ARM assembly builds
+
+The ODROID target also has optional ARMv7 SHA-256d assembly builds imported from pooler's cpuminer. These are separate benchmark candidates; the default ODROID binaries still use the in-tree scalar and NEON paths.
+
+On the ODROID:
+
+```sh
+make -C odroid odroid-pooler-local
+make -C odroid odroid-pooler-neon-local
+```
+
+For cross builds:
+
+```sh
+make -C odroid odroid-pooler
+make -C odroid odroid-pooler-neon
+```
+
+Pooler binaries are written to:
+
+```sh
+odroid/build/bitsyminer-odroid-mc1-solo-pooler
+odroid/build/bitsyminer-odroid-mc1-solo-pooler-neon
+```
+
 ## Run
 
 ```sh
@@ -102,6 +132,25 @@ For Orange Pi PC / H3:
   --password x
 ```
 
+Check the selected SHA backend with:
+
+```sh
+./odroid/build/bitsyminer-odroid-mc1-solo --self-test
+./odroid/build/bitsyminer-odroid-mc1-solo --benchmark 30
+./odroid/build/bitsyminer-odroid-mc1-solo-neon --self-test
+./odroid/build/bitsyminer-odroid-mc1-solo-neon --benchmark 30
+./odroid/build/bitsyminer-odroid-mc1-solo-pooler --self-test
+./odroid/build/bitsyminer-odroid-mc1-solo-pooler --benchmark 120
+./odroid/build/bitsyminer-odroid-mc1-solo-pooler-neon --self-test
+./odroid/build/bitsyminer-odroid-mc1-solo-pooler-neon --benchmark 120
+./odroid/build/bitsyminer-orangepi-pc-h3 --self-test
+./odroid/build/bitsyminer-orangepi-pc-h3 --benchmark 30
+./odroid/build/bitsyminer-orangepi-pc-h3-neon --self-test
+./odroid/build/bitsyminer-orangepi-pc-h3-neon --benchmark 30
+```
+
+The scalar build reports `backend=scalar`, the NEON build reports `backend=neon4`, and the pooler builds report `backend=pooler-arm` or `backend=pooler-arm-neon4`. Use the binary with the higher benchmark result after it passes `--self-test`.
+
 Useful options:
 
 ```sh
@@ -116,7 +165,9 @@ Useful options:
 
 ## Allwinner H3 SHA hardware
 
-The Allwinner H3 has a Crypto Engine that advertises SHA-256 support, and mainline Linux can expose it with the `sun8i-ce` crypto driver on suitable kernels. This miner still uses the CPU/NEON SHA loop for mining work because Bitcoin nonce scanning depends on a midstate-optimized hot path, while the Linux crypto API path adds per-hash kernel/DMA setup overhead and does not expose the exact midstate primitive this code uses.
+The Allwinner H3 has a Crypto Engine that advertises SHA-256 support, and mainline Linux can expose it with the `sun8i-ce` crypto driver on suitable kernels. This miner still uses the CPU SHA loop for mining work because Bitcoin nonce scanning depends on a midstate-optimized hot path, while the Linux crypto API path adds per-hash kernel/DMA setup overhead and does not expose the exact midstate primitive this code uses.
+
+The H3's Cortex-A7 cores do not have ARMv8 SHA instructions. The optional NEON path is generic four-lane SIMD, not the Allwinner Crypto Engine, and it may not beat the scalar path on this chip.
 
 On an Orange Pi PC, check whether the kernel sees the hardware driver with:
 

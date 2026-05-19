@@ -1,0 +1,6 @@
+#ifndef BITSY_CPUMINER_CONFIG_H
+#define BITSY_CPUMINER_CONFIG_H
+
+#define USE_ASM 1
+
+#endif
