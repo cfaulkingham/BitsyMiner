@@ -56,7 +56,41 @@
 
 namespace {
 
+#if defined(BITSY_ORANGE_PI_PC_H3)
+constexpr const char* kMinerName = "BitsyMinerOrangePiPCH3/1.0.0";
+constexpr const char* kTargetName = "Orange Pi PC H3";
+constexpr const char* kDefaultCoreListText = "0,1,2,3";
+constexpr const char* kAllCoreListText = "0,1,2,3";
+constexpr const char* kDefaultCoreDescription = "Allwinner H3 Cortex-A7 cores";
+constexpr int kDefaultThreadCount = 4;
+constexpr int kAllCoreThreadCount = 4;
+
+std::vector<int> defaultCoreList() { return {0, 1, 2, 3}; }
+std::vector<int> allCoreList() { return {0, 1, 2, 3}; }
+#elif defined(BITSY_ODROID_MC1_SOLO)
 constexpr const char* kMinerName = "BitsyMinerOdroid/1.2.0";
+constexpr const char* kTargetName = "ODROID-MC1 Solo";
+constexpr const char* kDefaultCoreListText = "4,5,6,7";
+constexpr const char* kAllCoreListText = "0,1,2,3,4,5,6,7";
+constexpr const char* kDefaultCoreDescription = "Exynos5422 Cortex-A15 cores";
+constexpr int kDefaultThreadCount = 4;
+constexpr int kAllCoreThreadCount = 8;
+
+std::vector<int> defaultCoreList() { return {4, 5, 6, 7}; }
+std::vector<int> allCoreList() { return {0, 1, 2, 3, 4, 5, 6, 7}; }
+#else
+constexpr const char* kMinerName = "BitsyMinerLinux/1.2.0";
+constexpr const char* kTargetName = "generic Linux";
+constexpr const char* kDefaultCoreListText = "0,1,2,3";
+constexpr const char* kAllCoreListText = "0,1,2,3";
+constexpr const char* kDefaultCoreDescription = "first four Linux CPUs";
+constexpr int kDefaultThreadCount = 4;
+constexpr int kAllCoreThreadCount = 4;
+
+std::vector<int> defaultCoreList() { return {0, 1, 2, 3}; }
+std::vector<int> allCoreList() { return {0, 1, 2, 3}; }
+#endif
+
 constexpr uint32_t kDiff1Bits = 0x1d00ffff;
 constexpr long double kDiff1Target =
     26959535291011309493156476344723991336010898738574164086137773096960.0L;
@@ -970,12 +1004,12 @@ struct Options {
     std::string port;
     std::string wallet;
     std::string password = "x";
-    int threads = 4;
+    int threads = kDefaultThreadCount;
     bool useAffinity = true;
     bool selfTest = false;
     int benchmarkSeconds = 0;
     long double suggestDifficulty = 0.0014L;
-    std::vector<int> coreList = {4, 5, 6, 7};
+    std::vector<int> coreList = defaultCoreList();
 };
 
 struct Notify {
@@ -1344,12 +1378,15 @@ std::vector<int> parseCoreList(const std::string& value) {
 
 void printUsage(const char* argv0) {
     std::cerr
-        << "Usage: " << argv0 << " --pool HOST:PORT --wallet WALLET [options]\n\n"
+        << "Usage: " << argv0 << " --pool HOST:PORT --wallet WALLET [options]\n"
+        << "Target: " << kTargetName << "\n\n"
         << "Options:\n"
         << "  --password PASS             Pool password, default: x\n"
-        << "  --threads N                 Mining threads, default: 4\n"
-        << "  --core-list 4,5,6,7         CPU affinity list, default: Cortex-A15 cores\n"
-        << "  --all-cores                 Use CPUs 0-7 and 8 threads\n"
+        << "  --threads N                 Mining threads, default: " << kDefaultThreadCount << "\n"
+        << "  --core-list LIST            CPU affinity list, default: " << kDefaultCoreListText
+        << " (" << kDefaultCoreDescription << ")\n"
+        << "  --all-cores                 Use CPUs " << kAllCoreListText
+        << " and " << kAllCoreThreadCount << " thread(s)\n"
         << "  --no-affinity               Disable CPU pinning\n"
         << "  --suggest-difficulty N      Send mining.suggest_difficulty, default: 0.0014\n"
         << "  --benchmark SECONDS         Run local SHA-256d benchmark\n"
@@ -1376,8 +1413,8 @@ Options parseArgs(int argc, char** argv) {
         } else if (arg == "--core-list") {
             opt.coreList = parseCoreList(requireValue("--core-list"));
         } else if (arg == "--all-cores") {
-            opt.threads = 8;
-            opt.coreList = {0, 1, 2, 3, 4, 5, 6, 7};
+            opt.threads = kAllCoreThreadCount;
+            opt.coreList = allCoreList();
         } else if (arg == "--no-affinity") {
             opt.useAffinity = false;
         } else if (arg == "--suggest-difficulty") {
@@ -2007,6 +2044,7 @@ int main(int argc, char** argv) {
         Stats stats;
 
         std::cerr << "starting " << opt.threads << " miner thread(s)"
+                  << " target=" << kTargetName
                   << " backend=" << shaBackendName();
         if (opt.useAffinity) {
             std::cerr << " with CPU affinity";

@@ -13,6 +13,8 @@ You can also compile and run the code in headless mode (no display), which shoul
 
 The current code includes inline assembly that is very hardware-dependent and is not compatible with other board types.
 
+There is also a separate native Linux headless miner in `odroid/` for ARM SBC experiments, including ODROID-MC1 Solo / XU4-class boards and Orange Pi PC / Allwinner H3 boards.
+
 
 <br/><br/>
 ### Installation
