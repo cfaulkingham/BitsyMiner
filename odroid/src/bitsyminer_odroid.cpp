@@ -515,7 +515,8 @@ PoolerHeaderWork preparePoolerHeaderWork(
     roundStep(a, b, c, d, e, f, g, h, work.data[0], kRound[0]);
     roundStep(a, b, c, d, e, f, g, h, work.data[1], kRound[1]);
     roundStep(a, b, c, d, e, f, g, h, work.data[2], kRound[2]);
-    work.prehash = {a, b, c, d, e, f, g, h};
+    // pooler's assembly resumes at round 3 using cpuminer's rotating state layout.
+    work.prehash = {d, e, f, g, h, a, b, c};
 
 #if BITSY_USE_NEON
     for (size_t word = 0; word < 32; ++word) {
